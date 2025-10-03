@@ -38,6 +38,7 @@ class Game:
         self.projectile_speed = 6.5
         self.damage = 25
         self.explosion_radius = 1.8
+        self.projectile_time_step = 0.1
 
     def _spawn_tanks(self, player_one: str, player_two: str) -> List[Tank]:
         left_x, left_y = self._find_spawn(2, 1)
@@ -78,6 +79,7 @@ class Game:
             "Commands: left, right, up, down, fire, status, help, quit\n"
             "  left/right: move the tank\n"
             "  up/down: adjust turret angle\n"
+            "  power+/power-: adjust shot force\n"
             "  fire: shoot a projectile\n"
             "  status: display tank stats"
         )
@@ -90,18 +92,20 @@ class Game:
         angle_deg = shooter.turret_angle
         direction = shooter.facing
         angle_rad = math.radians(angle_deg)
-        vx = math.cos(angle_rad) * self.projectile_speed * direction
-        vy = -math.sin(angle_rad) * self.projectile_speed
+        speed = self.projectile_speed * shooter.shot_power
+        vx = math.cos(angle_rad) * speed * direction
+        vy = -math.sin(angle_rad) * speed
         x = shooter.x + 0.5 + direction * 0.6
         y = shooter.y - 0.5
         path: List[tuple] = []
         hit_tank: Optional[Tank] = None
         impact_x: Optional[float] = None
         impact_y: Optional[float] = None
-        for _ in range(180):
-            x += vx
-            y += vy
-            vy += self.gravity
+        dt = self.projectile_time_step
+        for _ in range(360):
+            x += vx * dt
+            y += vy * dt
+            vy += self.gravity * dt
             path.append((x, y))
             if x < 0 or x >= self.world.width or y >= self.world.height:
                 break
@@ -173,6 +177,22 @@ class Game:
                 continue
             if command in {"down", "d"}:
                 shooter.lower_turret()
+                continue
+            if command in {"power+", "p+", "powerup", "+"}:
+                before = shooter.shot_power
+                shooter.increase_power()
+                if shooter.shot_power == before:
+                    print("Power already at maximum.")
+                else:
+                    print(f"Shot power increased to {shooter.shot_power:.2f}x")
+                continue
+            if command in {"power-", "p-", "powerdown", "-"}:
+                before = shooter.shot_power
+                shooter.decrease_power()
+                if shooter.shot_power == before:
+                    print("Power already at minimum.")
+                else:
+                    print(f"Shot power decreased to {shooter.shot_power:.2f}x")
                 continue
             if command == "fire":
                 result = self.step_projectile(shooter)

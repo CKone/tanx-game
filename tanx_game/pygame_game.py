@@ -27,6 +27,8 @@ class KeyBindings:
     turret_up: int
     turret_down: int
     fire: int
+    power_decrease: int
+    power_increase: int
 
 
 class PygameTanx:
@@ -80,6 +82,8 @@ class PygameTanx:
                 turret_up=pygame.K_w,
                 turret_down=pygame.K_s,
                 fire=pygame.K_SPACE,
+                power_decrease=pygame.K_q,
+                power_increase=pygame.K_e,
             ),
             KeyBindings(
                 move_left=pygame.K_LEFT,
@@ -87,6 +91,8 @@ class PygameTanx:
                 turret_up=pygame.K_UP,
                 turret_down=pygame.K_DOWN,
                 fire=pygame.K_RETURN,
+                power_decrease=pygame.K_LEFTBRACKET,
+                power_increase=pygame.K_RIGHTBRACKET,
             ),
         ]
 
@@ -117,13 +123,13 @@ class PygameTanx:
 
     def _handle_key(self, key: int) -> None:
         if self.winner or self._is_animating_projectile():
-            if key in {pygame.K_ESCAPE, pygame.K_q}:
+            if key == pygame.K_ESCAPE:
                 self.running = False
             elif key in {pygame.K_r, pygame.K_F5} and self.winner:
                 self._reset()
             return
 
-        if key in {pygame.K_ESCAPE, pygame.K_q}:
+        if key == pygame.K_ESCAPE:
             self.running = False
             return
 
@@ -143,6 +149,22 @@ class PygameTanx:
         if key == bindings.turret_down:
             tank.lower_turret()
             self.message = f"{tank.name} turret: {tank.turret_angle}°"
+            return
+        if key == bindings.power_increase:
+            previous = tank.shot_power
+            tank.increase_power()
+            if tank.shot_power == previous:
+                self.message = f"{tank.name} power already max"
+            else:
+                self.message = f"{tank.name} power: {tank.shot_power:.2f}x"
+            return
+        if key == bindings.power_decrease:
+            previous = tank.shot_power
+            tank.decrease_power()
+            if tank.shot_power == previous:
+                self.message = f"{tank.name} power already min"
+            else:
+                self.message = f"{tank.name} power: {tank.shot_power:.2f}x"
             return
         if key == bindings.fire:
             self._fire_projectile(tank)
@@ -226,10 +248,8 @@ class PygameTanx:
             ui_height=self.ui_height,
         )
 
-    def _advance_turn(self, announce: bool = False) -> None:
+    def _advance_turn(self) -> None:
         self.current_player = 1 - self.current_player
-        if announce and not self.winner:
-            self.message = f"{self.logic.tanks[self.current_player].name}'s turn"
 
     def _check_victory(self) -> None:
         alive = [tank for tank in self.logic.tanks if tank.alive]
@@ -317,9 +337,9 @@ class PygameTanx:
         self.screen.blit(message_surface, (16, 48))
 
         instructions = [
-            "Player 1: A/D move, W/S aim, Space fire",
-            "Player 2: ←/→ move, ↑/↓ aim, Enter fire",
-            "Esc or Q to quit",
+            "Player 1: A/D move, W/S aim, Space fire, Q/E power",
+            "Player 2: ←/→ move, ↑/↓ aim, Enter fire, [/ ] power",
+            "Esc to quit",
             "R to restart once the duel ends",
         ]
         for idx, line in enumerate(instructions):

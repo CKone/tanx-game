@@ -1,11 +1,10 @@
 """Entry point for playing the Tanx artillery game."""
 
-from tanx_game.game import Game
+from tanx_game import run_pygame
 
 
 def main() -> None:
-    game = Game()
-    game.play()
+    run_pygame()
 
 
 if __name__ == "__main__":

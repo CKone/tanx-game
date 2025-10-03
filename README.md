@@ -16,6 +16,12 @@ until your opponent reaches zero health.
 python main.py
 ```
 
+To enable the optional cheat console:
+
+```bash
+python main.py --cheat
+```
+
 A window will open with the battlefield and UI overlay.
 
 ## Controls
@@ -24,6 +30,7 @@ A window will open with the battlefield and UI overlay.
 * Player 2 – `←`/`→` move, `↑`/`↓` aim, `Enter` fire, `[`/`]` tweak shot power.
 * `Esc` – exit the match.
 * After a victory, `R` restarts the duel.
+* With `--cheat`, press `F1` for the cheat console (`1`/`2` detonate Player 1/2).
 
 Direct hits remove 25 hit points from the target tank. Near misses chip away at
 health and reshape the terrain. Use the power keys to dial in muzzle velocity so

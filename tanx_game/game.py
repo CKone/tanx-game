@@ -20,6 +20,8 @@ class ShotResult:
     impact_x: Optional[float]
     impact_y: Optional[float]
     path: List[tuple]
+    fatal_hit: bool = False
+    fatal_tank: Optional[Tank] = None
 
 
 class Game:
@@ -38,6 +40,7 @@ class Game:
         self.projectile_speed = 6.5
         self.damage = 25
         self.explosion_radius = 1.8
+        self.crater_size = 4
         self.projectile_time_step = 0.1
 
     def _spawn_tanks(self, player_one: str, player_two: str) -> List[Tank]:
@@ -88,7 +91,7 @@ class Game:
         return command.strip().lower()
 
     # Simulation ----------------------------------------------------------------
-    def step_projectile(self, shooter: Tank) -> ShotResult:
+    def step_projectile(self, shooter: Tank, apply_effects: bool = True) -> ShotResult:
         angle_deg = shooter.turret_angle
         direction = shooter.facing
         angle_rad = math.radians(angle_deg)
@@ -125,19 +128,56 @@ class Game:
             if self.world.is_solid(ix, iy):
                 impact_x, impact_y = x, y
                 break
-        if impact_x is not None and impact_y is not None:
-            self.world.carve_circle(impact_x, impact_y, self.explosion_radius)
-        if hit_tank:
-            hit_tank.take_damage(self.damage)
+        result = ShotResult(hit_tank, impact_x, impact_y, path)
+        if apply_effects:
+            self.apply_shot_effects(result)
+        return result
+
+    def apply_shot_effects(self, result: ShotResult) -> None:
+        impact_x, impact_y = result.impact_x, result.impact_y
+        if impact_x is not None and impact_y is not None and result.hit_tank is None:
+            self.world.carve_square(impact_x, impact_y, self.crater_size)
+        fatal_tank: Optional[Tank] = None
+        if result.hit_tank:
+            tank = result.hit_tank
+            was_alive = tank.alive
+            tank.take_damage(self.damage)
+            if was_alive and not tank.alive:
+                fatal_tank = tank
         elif impact_x is not None and impact_y is not None:
-            for tank in self.tanks:
-                if tank.alive and abs(tank.x - impact_x) <= 1.0 and abs(tank.y - impact_y) <= 1.0:
-                    tank.take_damage(self.damage // 2)
+            splash_fatal = self._apply_splash_damage(impact_x, impact_y)
+            if splash_fatal is not None:
+                fatal_tank = splash_fatal
         for tank in self.tanks:
             if not tank.alive:
                 continue
             self.settle_tank(tank)
-        return ShotResult(hit_tank, impact_x, impact_y, path)
+        result.fatal_hit = fatal_tank is not None
+        result.fatal_tank = fatal_tank
+
+    def _apply_splash_damage(self, impact_x: float, impact_y: float) -> Optional[Tank]:
+        radius = self.explosion_radius
+        max_distance = radius
+        fatal_tank: Optional[Tank] = None
+        for tank in self.tanks:
+            if not tank.alive:
+                continue
+            distance = math.hypot(tank.x - impact_x, tank.y - impact_y)
+            if distance > max_distance:
+                continue
+            if distance <= 0.5:
+                if tank.alive:
+                    tank.take_damage(self.damage)
+                    if not tank.alive:
+                        fatal_tank = tank
+                continue
+            falloff = 1 - min(distance / max_distance, 1.0)
+            splash_damage = max(1, int(self.damage * falloff * 0.6))
+            was_alive = tank.alive
+            tank.take_damage(splash_damage)
+            if was_alive and not tank.alive:
+                fatal_tank = tank
+        return fatal_tank
 
     # Game loop -----------------------------------------------------------------
     def play(self) -> None:

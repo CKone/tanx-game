@@ -20,10 +20,12 @@ A window will open with the battlefield and UI overlay.
 
 ## Controls
 
-* Player 1 – `A`/`D` move, `W`/`S` aim, `Space` fire.
-* Player 2 – `←`/`→` move, `↑`/`↓` aim, `Enter` fire.
-* `Esc` or `Q` – exit the match.
+* Player 1 – `A`/`D` move, `W`/`S` aim, `Space` fire, `Q`/`E` tweak shot power.
+* Player 2 – `←`/`→` move, `↑`/`↓` aim, `Enter` fire, `[`/`]` tweak shot power.
+* `Esc` – exit the match.
 * After a victory, `R` restarts the duel.
 
 Direct hits remove 25 hit points from the target tank. Near misses chip away at
-health and reshape the terrain. First tank to reach zero hit points loses.
+health and reshape the terrain. Use the power keys to dial in muzzle velocity so
+shells follow graceful ballistic arcs to the target. First tank to reach zero
+hit points loses.

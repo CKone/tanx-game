@@ -21,6 +21,10 @@ class Tank:
     min_angle: int = -75
     max_angle: int = 75
     move_distance: int = 1
+    shot_power: float = 1.0
+    min_power: float = 0.4
+    max_power: float = 1.8
+    power_step: float = 0.05
     last_command: Optional[str] = field(default=None, init=False)
 
     def clamp_turret(self) -> None:
@@ -35,6 +39,16 @@ class Tank:
         self.turret_angle -= amount
         self.clamp_turret()
         self.last_command = f"turret -{amount}"
+
+    def increase_power(self, amount: Optional[float] = None) -> None:
+        step = amount if amount is not None else self.power_step
+        self.shot_power = min(self.max_power, self.shot_power + step)
+        self.last_command = f"power +{step:.2f}"
+
+    def decrease_power(self, amount: Optional[float] = None) -> None:
+        step = amount if amount is not None else self.power_step
+        self.shot_power = max(self.min_power, self.shot_power - step)
+        self.last_command = f"power -{step:.2f}"
 
     def stand_y(self, world: World, x: int) -> Optional[int]:
         surface = world.surface_y(x)
@@ -68,4 +82,5 @@ class Tank:
         return (
             f"{self.name} HP:{self.hp:3d} Pos:{self.x:2d}"
             f" Angle:{self.turret_angle:3d}{facing_arrow}"
+            f" Pow:{self.shot_power:4.2f}x"
         )

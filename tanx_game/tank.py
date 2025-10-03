@@ -16,7 +16,7 @@ class Tank:
     x: int
     y: int
     facing: int  # 1 for right, -1 for left
-    hp: int = 100
+    hp: int = 10
     turret_angle: int = 45
     min_angle: int = -75
     max_angle: int = 75

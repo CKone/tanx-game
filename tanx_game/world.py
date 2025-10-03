@@ -70,6 +70,24 @@ class World:
                 if dx * dx + dy * dy <= r_sq:
                     self.grid[y][x] = False
 
+    def carve_square(self, cx: float, cy: float, size: int = 4) -> None:
+        """Remove a square block of terrain centered on the impact point."""
+
+        if size <= 0:
+            return
+        half = size // 2
+        center_x = int(round(cx))
+        start_x = center_x - half
+
+        for x in range(start_x, start_x + size):
+            if not (0 <= x < self.width):
+                continue
+            top = self.highest_solid(x)
+            if top is None:
+                continue
+            for y in range(top, min(self.height, top + size)):
+                self.grid[y][x] = False
+
     def highest_solid(self, x: int) -> Optional[int]:
         """Return the highest (smallest y) solid cell in the column."""
 

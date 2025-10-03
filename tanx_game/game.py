@@ -136,7 +136,7 @@ class Game:
     def apply_shot_effects(self, result: ShotResult) -> None:
         impact_x, impact_y = result.impact_x, result.impact_y
         if impact_x is not None and impact_y is not None and result.hit_tank is None:
-            self.world.carve_square(impact_x, impact_y, self.crater_size)
+            self.world.carve_circle(impact_x, impact_y, self.explosion_radius)
         fatal_tank: Optional[Tank] = None
         if result.hit_tank:
             tank = result.hit_tank

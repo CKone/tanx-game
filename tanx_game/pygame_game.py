@@ -9,6 +9,7 @@ from typing import List, Optional, Tuple
 
 try:
     import pygame
+    import pygame.gfxdraw
 except ImportError as exc:  # pragma: no cover - depends on runtime environment
     raise RuntimeError(
         "The pygame package is required to run the graphical version of Tanx."
@@ -592,6 +593,22 @@ class PygameTanx:
             particle.vy += self.particle_gravity * dt
             particle.x += particle.vx * dt
             particle.y += particle.vy * dt
+            if -2 <= particle.x <= self.logic.world.width + 2:
+                surface = self.logic.world.ground_height(particle.x)
+                if surface is not None and particle.y >= surface - 0.05:
+                    gradient = 0.0
+                    left = self.logic.world.ground_height(particle.x - 0.25)
+                    right = self.logic.world.ground_height(particle.x + 0.25)
+                    if left is not None and right is not None:
+                        gradient = (right - left) * 0.3
+                    particle.y = surface - 0.05
+                    if particle.vy > 0:
+                        particle.vy = -particle.vy * 0.25
+                    particle.vx = (particle.vx + gradient) * 0.65
+                    if abs(particle.vx) < 0.04:
+                        particle.vx = 0.0
+                    if abs(particle.vy) < 0.04:
+                        particle.vy = 0.0
             alive.append(particle)
         self.particles = alive
 
@@ -607,6 +624,22 @@ class PygameTanx:
             chunk.x += chunk.vx * dt
             chunk.y += chunk.vy * dt
             chunk.angle += chunk.angular_velocity * dt
+            if -4 <= chunk.x <= self.logic.world.width + 4:
+                surface = self.logic.world.ground_height(chunk.x)
+                if surface is not None and chunk.y >= surface - 0.1:
+                    gradient = 0.0
+                    left = self.logic.world.ground_height(chunk.x - 0.4)
+                    right = self.logic.world.ground_height(chunk.x + 0.4)
+                    if left is not None and right is not None:
+                        gradient = (right - left) * 0.4
+                    chunk.y = surface - 0.1
+                    if chunk.vy > 0:
+                        chunk.vy = -chunk.vy * 0.35
+                    chunk.vx = (chunk.vx + gradient) * 0.8
+                    if abs(chunk.vx) < 0.05:
+                        chunk.vx = 0.0
+                    if abs(chunk.vy) < 0.05:
+                        chunk.vy = 0.0
             alive.append(chunk)
         self.debris = alive
 
@@ -625,25 +658,83 @@ class PygameTanx:
             pygame.draw.line(self.screen, color, (0, y), (width, y))
 
     def _draw_world(self) -> None:
+        world = self.logic.world
+        detail = world.detail
         offset_y = self.ui_height
-        for y, row in enumerate(self.logic.world.grid):
-            for x, solid in enumerate(row):
-                if solid:
-                    rect = pygame.Rect(
-                        x * self.cell_size,
-                        y * self.cell_size + offset_y,
-                        self.cell_size,
-                        self.cell_size,
-                    )
-                    pygame.draw.rect(self.screen, self.ground_color, rect)
-                elif self._neighboring_solid(x, y):
-                    rim_rect = pygame.Rect(
-                        x * self.cell_size,
-                        y * self.cell_size + offset_y,
-                        self.cell_size,
-                        self.cell_size,
-                    )
-                    pygame.draw.rect(self.screen, self.crater_rim_color, rim_rect, width=1)
+        bottom = world.height * self.cell_size + offset_y
+
+        surface_points: List[tuple[int, int]] = []
+        for hx in range(world.grid_width):
+            x_world = hx / detail
+            height = world.height_map[hx]
+            x_pix = int(round(x_world * self.cell_size))
+            y_pix = int(round(height * self.cell_size + offset_y))
+            surface_points.append((x_pix, y_pix))
+
+        if not surface_points:
+            return
+
+        light = pygame.math.Vector2(-0.35, -1.0)
+        if light.length_squared() > 0:
+            light = light.normalize()
+        rock_color = pygame.Color(110, 112, 118)
+        soil_color = pygame.Color(165, 126, 76)
+        grass_color = pygame.Color(104, 164, 92)
+        grass_thickness_px = int(self.cell_size * 0.45)
+        soil_thickness_px = int(self.cell_size * 1.6)
+
+        def shade(col: pygame.Color, factor: float) -> Tuple[int, int, int]:
+            return (
+                min(255, max(0, int(col.r * factor))),
+                min(255, max(0, int(col.g * factor))),
+                min(255, max(0, int(col.b * factor))),
+            )
+
+        for idx in range(len(surface_points) - 1):
+            x0, y0 = surface_points[idx]
+            x1, y1 = surface_points[idx + 1]
+            if x0 == x1:
+                continue
+            h0 = world.height_map[idx]
+            h1 = world.height_map[min(idx + 1, len(world.height_map) - 1)]
+            dx = (1.0 / detail)
+            dy = h1 - h0
+            tangent = pygame.math.Vector2(dx, dy)
+            if tangent.length_squared() == 0:
+                tangent = pygame.math.Vector2(0.0, 1.0)
+            normal = pygame.math.Vector2(-tangent.y, tangent.x)
+            if normal.length_squared() == 0:
+                normal = pygame.math.Vector2(0.0, 1.0)
+            normal = normal.normalize()
+            shade_factor = 0.35 + 0.65 * max(0.0, normal.dot(light))
+
+            rock_poly = [(x0, y0), (x1, y1), (x1, bottom), (x0, bottom)]
+            rock_col = shade(rock_color, shade_factor)
+            pygame.gfxdraw.filled_polygon(self.screen, rock_poly, rock_col)
+            pygame.gfxdraw.aapolygon(self.screen, rock_poly, rock_col)
+
+            soil_col = shade(soil_color, shade_factor)
+            soil_poly = [
+                (x0, y0),
+                (x1, y1),
+                (x1, min(bottom, y1 + soil_thickness_px)),
+                (x0, min(bottom, y0 + soil_thickness_px)),
+            ]
+            pygame.gfxdraw.filled_polygon(self.screen, soil_poly, soil_col)
+            pygame.gfxdraw.aapolygon(self.screen, soil_poly, soil_col)
+
+            grass_col = shade(grass_color, shade_factor)
+            grass_poly = [
+                (x0, y0),
+                (x1, y1),
+                (x1, min(bottom, y1 + grass_thickness_px)),
+                (x0, min(bottom, y0 + grass_thickness_px)),
+            ]
+            pygame.gfxdraw.filled_polygon(self.screen, grass_poly, grass_col)
+            pygame.gfxdraw.aapolygon(self.screen, grass_poly, grass_col)
+
+        # Draw iso-line for the terrain surface.
+        pygame.draw.aalines(self.screen, self.crater_rim_color, False, surface_points, blend=1)
 
     def _draw_tanks(self) -> None:
         offset_y = self.ui_height
@@ -757,15 +848,6 @@ class PygameTanx:
             screen_x = x * self.cell_size - radius
             screen_y = y * self.cell_size + offset_y - radius
             self.screen.blit(overlay, (screen_x, screen_y))
-
-    def _neighboring_solid(self, x: int, y: int) -> bool:
-        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            nx = x + dx
-            ny = y + dy
-            if 0 <= nx < self.logic.world.width and 0 <= ny < self.logic.world.height:
-                if self.logic.world.grid[ny][nx]:
-                    return True
-        return False
 
     def _draw_ui(self) -> None:
         tank_panel = " | ".join(tank.info_line() for tank in self.logic.tanks)

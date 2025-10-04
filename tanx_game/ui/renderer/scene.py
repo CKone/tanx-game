@@ -13,6 +13,24 @@ from ...tank import Tank
 from ..effects import Debris, Particle
 
 
+def _scale_color(color: pygame.Color, factor: float) -> pygame.Color:
+    return pygame.Color(
+        max(0, min(255, int(color.r * factor))),
+        max(0, min(255, int(color.g * factor))),
+        max(0, min(255, int(color.b * factor))),
+    )
+
+
+def _blend_color(color: pygame.Color, other: pygame.Color, ratio: float) -> pygame.Color:
+    clamped = max(0.0, min(1.0, ratio))
+    inv = 1.0 - clamped
+    return pygame.Color(
+        int(color.r * inv + other.r * clamped),
+        int(color.g * inv + other.g * clamped),
+        int(color.b * inv + other.b * clamped),
+    )
+
+
 def draw_background(app) -> None:
     surface = app.screen
     width = surface.get_width()
@@ -115,29 +133,134 @@ def draw_tanks(app) -> None:
     surface = app.screen
     offset_y = app.ui_height
     offset_x = app.playfield_offset_x
-    turret_length = app.cell_size * 0.8
+    cell = app.cell_size
+    track_height = cell * 0.28
+    hull_height = cell * 0.52
+    turret_radius = cell * 0.28
+    barrel_length = cell * 0.9
+    barrel_width = cell * 0.16
+
+    dark_grey = pygame.Color(32, 36, 42)
+    steel = pygame.Color(180, 190, 204)
+
     for idx, tank in enumerate(app.logic.tanks):
         if not tank.alive:
             continue
-        color = app.tank_colors[idx % len(app.tank_colors)]
-        x = offset_x + tank.x * app.cell_size
-        y = tank.y * app.cell_size + offset_y
-        body_rect = pygame.Rect(x, y, app.cell_size, app.cell_size)
-        pygame.draw.rect(surface, color, body_rect, border_radius=6)
 
-        center_x = x + app.cell_size / 2
-        center_y = y + app.cell_size / 2
-        angle = math.radians(tank.turret_angle)
-        dx = math.cos(angle) * turret_length * tank.facing
-        dy = -math.sin(angle) * turret_length
-        end_pos = (center_x + dx, center_y + dy)
-        pygame.draw.line(
-            surface,
-            pygame.Color("black"),
-            (center_x, center_y - app.cell_size * 0.25),
-            end_pos,
-            4,
+        base_color = app.tank_colors[idx % len(app.tank_colors)]
+        hull_color = _scale_color(base_color, 1.0)
+        hull_highlight = _scale_color(base_color, 1.18)
+        hull_shadow = _scale_color(base_color, 0.75)
+        track_color = _scale_color(base_color, 0.45)
+        wheel_color = _blend_color(track_color, steel, 0.3)
+        turret_color = _scale_color(base_color, 1.05)
+        turret_shadow = _scale_color(base_color, 0.8)
+
+        x = offset_x + tank.x * cell
+        y = tank.y * cell + offset_y
+        facing = tank.facing
+
+        # Tracks -----------------------------------------------------------------
+        track_margin = cell * 0.06
+        track_rect = pygame.Rect(
+            int(x - track_margin),
+            int(y + cell - track_height),
+            int(cell + track_margin * 2),
+            int(track_height),
         )
+        pygame.draw.rect(surface, track_color, track_rect, border_radius=int(track_height * 0.35))
+
+        wheel_radius = cell * 0.14
+        wheel_spacing = (track_rect.width - wheel_radius * 2) / 4
+        wheel_y = track_rect.bottom - wheel_radius * 1.1
+        for i in range(4):
+            wheel_x = track_rect.left + wheel_radius + wheel_spacing * i
+            pygame.draw.circle(surface, wheel_color, (int(wheel_x), int(wheel_y)), int(wheel_radius))
+            pygame.draw.circle(surface, dark_grey, (int(wheel_x), int(wheel_y)), int(wheel_radius * 0.55))
+
+        # Hull --------------------------------------------------------------------
+        hull_rect = pygame.Rect(
+            int(x - cell * 0.05),
+            int(y + cell - track_height - hull_height),
+            int(cell * 1.1),
+            int(hull_height),
+        )
+        pygame.draw.rect(surface, hull_color, hull_rect, border_radius=int(cell * 0.18))
+
+        # Hull shading strip
+        highlight_rect = pygame.Rect(hull_rect)
+        highlight_rect.height = int(hull_rect.height * 0.35)
+        pygame.draw.rect(surface, hull_highlight, highlight_rect, border_radius=int(cell * 0.18))
+
+        shadow_rect = pygame.Rect(hull_rect)
+        shadow_rect.y += int(hull_rect.height * 0.55)
+        shadow_rect.height = int(hull_rect.height * 0.45)
+        pygame.draw.rect(surface, hull_shadow, shadow_rect, border_radius=int(cell * 0.14))
+
+        # Turret ------------------------------------------------------------------
+        turret_center_x = x + cell * 0.5 + facing * cell * 0.05
+        turret_center_y = hull_rect.y + hull_rect.height * 0.4
+        pygame.draw.circle(surface, turret_color, (int(turret_center_x), int(turret_center_y)), int(turret_radius))
+        pygame.draw.circle(
+            surface,
+            turret_shadow,
+            (int(turret_center_x - facing * cell * 0.06), int(turret_center_y + cell * 0.06)),
+            int(turret_radius * 0.65),
+        )
+
+        # Barrel ------------------------------------------------------------------
+        angle = math.radians(tank.turret_angle)
+        dir_x = math.cos(angle) * facing
+        dir_y = -math.sin(angle)
+        pivot = (
+            turret_center_x + dir_y * (barrel_width * 0.15),
+            turret_center_y - dir_x * (barrel_width * 0.15),
+        )
+        half_width = barrel_width / 2
+        end_x = pivot[0] + dir_x * barrel_length
+        end_y = pivot[1] + dir_y * barrel_length
+        perp_x = -dir_y
+        perp_y = dir_x
+
+        barrel_points = [
+            (pivot[0] - perp_x * half_width, pivot[1] - perp_y * half_width),
+            (pivot[0] + perp_x * half_width, pivot[1] + perp_y * half_width),
+            (end_x + perp_x * half_width * 0.8, end_y + perp_y * half_width * 0.8),
+            (end_x - perp_x * half_width * 0.8, end_y - perp_y * half_width * 0.8),
+        ]
+        pygame.draw.polygon(surface, turret_color, [(int(px), int(py)) for px, py in barrel_points])
+
+        muzzle_radius = max(2, int(half_width * 0.75))
+        pygame.draw.circle(surface, dark_grey, (int(end_x), int(end_y)), muzzle_radius)
+        pygame.draw.circle(surface, steel, (int(end_x), int(end_y)), max(1, muzzle_radius // 2))
+
+        # Hatch detail -------------------------------------------------------------
+        hatch_radius = turret_radius * 0.45
+        pygame.draw.circle(
+            surface,
+            _blend_color(turret_color, steel, 0.25),
+            (
+                int(turret_center_x + facing * cell * 0.05),
+                int(turret_center_y - cell * 0.08),
+            ),
+            int(hatch_radius),
+        )
+        pygame.draw.circle(
+            surface,
+            _scale_color(turret_color, 0.6),
+            (
+                int(turret_center_x + facing * cell * 0.05),
+                int(turret_center_y - cell * 0.08),
+            ),
+            max(1, int(hatch_radius * 0.45)),
+        )
+
+        # Body rivets --------------------------------------------------------------
+        rivet_radius = max(1, int(cell * 0.04))
+        for i in range(3):
+            rivet_x = hull_rect.left + hull_rect.width * (0.2 + 0.3 * i)
+            rivet_y = hull_rect.top + hull_rect.height * 0.32
+            pygame.draw.circle(surface, _scale_color(base_color, 0.7), (int(rivet_x), int(rivet_y)), rivet_radius)
 
 
 def draw_projectile(app, position: tuple[float, float]) -> None:

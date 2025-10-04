@@ -36,7 +36,7 @@ class InputHandler:
     # Internal helpers
     def _handle_key(self, key: int) -> None:
         app = self.app
-        if app.state in {"main_menu", "pause_menu", "post_game_menu", "settings_menu"}:
+        if app.state in {"main_menu", "pause_menu", "post_game_menu", "settings_menu", "keybind_menu"}:
             self._handle_menu_key(key)
             return
 
@@ -116,15 +116,24 @@ class InputHandler:
     def _handle_menu_key(self, key: int) -> None:
         app = self.app
         if key == pygame.K_ESCAPE:
+            if app.state == "keybind_menu":
+                if app.rebinding_target is not None:
+                    app._cancel_rebinding()
+                else:
+                    app._action_keybindings_back()
+                return
             if app.state == "main_menu":
                 app._action_exit_game()
-            elif app.state == "pause_menu":
+                return
+            if app.state == "pause_menu":
                 app._action_resume_game()
-            elif app.state == "settings_menu":
+                return
+            if app.state == "settings_menu":
                 app._action_settings_back()
-            elif app.state == "post_game_menu":
+                return
+            if app.state == "post_game_menu":
                 app._action_return_to_start_menu()
-            return
+                return
 
         if app.state == "settings_menu" and app.menu_selection == app.settings_resolution_option_index:
             if key == pygame.K_LEFT:
@@ -132,6 +141,11 @@ class InputHandler:
                 return
             if key == pygame.K_RIGHT:
                 app._change_resolution(1)
+                return
+
+        if app.state == "keybind_menu":
+            if app.rebinding_target is not None:
+                app._finish_rebinding(key)
                 return
 
         if not app.menu_options:

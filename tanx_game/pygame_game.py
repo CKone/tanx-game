@@ -98,9 +98,20 @@ class PygameTanx:
         self.resolution_presets: List[dict[str, object]] = []
         self.resolution_index = 0
         self.settings_resolution_option_index = 0
-        self.settings_fullscreen_option_index = 1
+        self.settings_keybind_option_index = 1
+        self.settings_fullscreen_option_index = 2
+        self.binding_fields: List[tuple[str, str]] = [
+            ("Move Left", "move_left"),
+            ("Move Right", "move_right"),
+            ("Turret Up", "turret_up"),
+            ("Turret Down", "turret_down"),
+            ("Fire", "fire"),
+            ("Power -", "power_decrease"),
+            ("Power +", "power_increase"),
+        ]
+        self.rebinding_target: Optional[tuple[int, str]] = None
 
-        self.player_bindings = [
+        self.default_bindings = [
             KeyBindings(
                 move_left=pygame.K_a,
                 move_right=pygame.K_d,
@@ -120,6 +131,7 @@ class PygameTanx:
                 power_increase=pygame.K_RIGHTBRACKET,
             ),
         ]
+        self.player_bindings = [KeyBindings(**vars(binding)) for binding in self.default_bindings]
 
         self.sky_color_top = pygame.Color(78, 149, 205)
         self.sky_color_bottom = pygame.Color(19, 57, 84)
@@ -258,12 +270,22 @@ class PygameTanx:
         label = str(preset["label"])
         return f"Resolution: {label}"
 
+    def _format_key_name(self, key: int) -> str:
+        name = pygame.key.name(key)
+        return name.upper()
+
+    def _binding_label(self, field: str) -> str:
+        for label, attr in self.binding_fields:
+            if attr == field:
+                return label
+        return field
+
     def _windowed_fullscreen_label(self) -> str:
         label = "Windowed Fullscreen"
         if self.windowed_fullscreen_size:
             width, height = self.windowed_fullscreen_size
             label = f"{label} ({width}×{height})"
-        return label
+            return label
 
     def _enter_windowed_fullscreen(self) -> None:
         try:
@@ -341,9 +363,11 @@ class PygameTanx:
 
     def _build_settings_menu_options(self) -> List[tuple[str, Callable[[], None]]]:
         self.settings_resolution_option_index = 0
-        self.settings_fullscreen_option_index = 1
+        self.settings_keybind_option_index = 1
+        self.settings_fullscreen_option_index = 2
         return [
             (self._resolution_option_label(), self._action_cycle_resolution_forward),
+            ("Configure Keybindings", self._action_open_keybindings),
             (self._windowed_fullscreen_label(), self._action_enter_windowed_fullscreen),
             ("Back to Start Menu", self._action_settings_back),
         ]
@@ -354,6 +378,38 @@ class PygameTanx:
         current_selection = min(self.menu_selection, max(len(self.menu_options) - 1, 0))
         self.menu_options = self._build_settings_menu_options()
         self.menu_selection = min(current_selection, len(self.menu_options) - 1)
+
+    def _build_keybinding_menu_options(self) -> List[tuple[str, Callable[[], None]]]:
+        options: List[tuple[str, Callable[[], None]]] = []
+        for player_idx, prefix in enumerate(["Player 1", "Player 2"]):
+            bindings = self.player_bindings[player_idx]
+            for label, field in self.binding_fields:
+                key_code = getattr(bindings, field)
+                options.append(
+                    (
+                        f"{prefix} {label}: {self._format_key_name(key_code)}",
+                        lambda pi=player_idx, f=field: self._start_rebinding(pi, f),
+                    )
+                )
+        options.append(("Reset to Defaults", self._action_reset_keybindings))
+        options.append(("Back to Settings", self._action_keybindings_back))
+        return options
+
+    def _update_keybinding_menu_options(self) -> None:
+        if self.state != "keybind_menu":
+            return
+        current_selection = min(self.menu_selection, max(len(self.menu_options) - 1, 0))
+        self.menu_options = self._build_keybinding_menu_options()
+        self.menu_selection = min(current_selection, len(self.menu_options) - 1)
+        if self.rebinding_target is not None:
+            player_idx, field = self.rebinding_target
+            label = self._binding_label(field)
+            self.menu_message = (
+                f"Press a key for Player {player_idx + 1} {label} (Esc to cancel)"
+            )
+        else:
+            self.menu_message = "Select an action to rebind."
+
 
     def _activate_menu(self, name: str, message: Optional[str] = None) -> None:
         self.active_menu = name
@@ -378,6 +434,9 @@ class PygameTanx:
         elif name == "settings_menu":
             self.menu_title = "Settings"
             self.menu_options = self._build_settings_menu_options()
+        elif name == "keybind_menu":
+            self.menu_title = "Key Bindings"
+            self.menu_options = self._build_keybinding_menu_options()
         elif name == "post_game_menu":
             title = f"{self.winner.name} Wins!" if self.winner else "Game Over"
             self.menu_title = title
@@ -396,6 +455,8 @@ class PygameTanx:
                 self.menu_message = "Game paused."
             elif name == "settings_menu":
                 self.menu_message = self._settings_instructions
+            elif name == "keybind_menu":
+                self.menu_message = "Select an action to rebind."
             elif name == "post_game_menu":
                 self.menu_message = self.message
 
@@ -413,6 +474,46 @@ class PygameTanx:
         if self.menu_message and self.menu_message != self._settings_instructions:
             message = self.menu_message
         self._activate_menu("main_menu", message=message)
+
+    def _action_open_keybindings(self) -> None:
+        self.rebinding_target = None
+        self._activate_menu("keybind_menu")
+
+    def _action_keybindings_back(self) -> None:
+        self.rebinding_target = None
+        self._activate_menu("settings_menu")
+
+    def _action_reset_keybindings(self) -> None:
+        self.player_bindings = [KeyBindings(**vars(binding)) for binding in self.default_bindings]
+        self.menu_message = "Key bindings reset to defaults."
+        self._update_keybinding_menu_options()
+
+    def _start_rebinding(self, player_idx: int, field: str) -> None:
+        self.rebinding_target = (player_idx, field)
+        label = self._binding_label(field)
+        self.menu_message = (
+            f"Press a key for Player {player_idx + 1} {label} (Esc to cancel)"
+        )
+        self._update_keybinding_menu_options()
+
+    def _finish_rebinding(self, key: int) -> None:
+        if self.rebinding_target is None:
+            return
+        player_idx, field = self.rebinding_target
+        setattr(self.player_bindings[player_idx], field, key)
+        self.rebinding_target = None
+        label = self._binding_label(field)
+        self.menu_message = (
+            f"Player {player_idx + 1} {label} bound to {self._format_key_name(key)}"
+        )
+        self._update_keybinding_menu_options()
+
+    def _cancel_rebinding(self) -> None:
+        if self.rebinding_target is None:
+            return
+        self.rebinding_target = None
+        self.menu_message = "Rebinding cancelled."
+        self._update_keybinding_menu_options()
 
     def _action_enter_windowed_fullscreen(self) -> None:
         self._enter_windowed_fullscreen()
@@ -499,7 +600,7 @@ class PygameTanx:
         draw_explosions(self)
         if self.state in {"playing", "pause_menu"}:
             draw_ui(self)
-        if self.state in {"main_menu", "pause_menu", "post_game_menu", "settings_menu"}:
+        if self.state in {"main_menu", "pause_menu", "post_game_menu", "settings_menu", "keybind_menu"}:
             draw_menu_overlay(self)
 
         if self.render_surface is not None:

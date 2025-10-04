@@ -28,6 +28,31 @@ def draw_ui(app) -> None:
         text_surface = app.font_small.render(line, True, pygame.Color(200, 200, 200))
         surface.blit(text_surface, (16, 76 + idx * 18))
 
+    bar_start_y = 76 + len(instructions) * 18 + 16
+    bar_width = 180
+    bar_height = 12
+    for idx, tank in enumerate(app.logic.tanks):
+        label_surface = app.font_small.render(
+            f"{tank.name} Superpower", True, pygame.Color(220, 220, 220)
+        )
+        label_y = bar_start_y + idx * 28
+        surface.blit(label_surface, (16, label_y))
+
+        bar_rect = pygame.Rect(16, label_y + 14, bar_width, bar_height)
+        pygame.draw.rect(surface, pygame.Color(60, 60, 60), bar_rect, border_radius=6)
+        fill_width = int(bar_width * max(0.0, min(1.0, tank.super_power)))
+        if fill_width > 0:
+            fill_rect = pygame.Rect(bar_rect.left, bar_rect.top, fill_width, bar_height)
+            color = app.tank_colors[idx % len(app.tank_colors)]
+            pygame.draw.rect(surface, color, fill_rect, border_radius=6)
+        pygame.draw.rect(surface, pygame.Color(20, 20, 20), bar_rect, width=1, border_radius=6)
+
+        if tank.super_power >= 1.0:
+            ready_text = "Ready: B bomber, N squad"
+            ready_color = pygame.Color(255, 235, 140) if idx == app.current_player else pygame.Color(210, 210, 210)
+            ready_surface = app.font_small.render(ready_text, True, ready_color)
+            surface.blit(ready_surface, (bar_rect.right + 16, bar_rect.top - 2))
+
     if app.cheat_enabled and app.cheat_menu_visible:
         overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 180))
@@ -36,6 +61,7 @@ def draw_ui(app) -> None:
             "Cheat Console",
             "1 - Detonate Player 1",
             "2 - Detonate Player 2",
+            "3 - Max Superpower",
             "F1 / Esc - Close",
         ]
         for idx, line in enumerate(menu_lines):

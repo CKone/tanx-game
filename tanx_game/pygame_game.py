@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Callable, List, Optional, Tuple
 
 try:
@@ -16,7 +17,9 @@ from .game import Game, ShotResult
 from .tank import Tank
 from .world import TerrainSettings
 from .ui.effects import EffectsSystem
-from .ui.input import InputHandler, KeyBindings
+from .ui.input import InputHandler
+from .ui.superpowers import SuperpowerManager
+from .ui.keybindings import KeybindingManager, KeyBindings
 from .ui.renderer.scene import (
     draw_background,
     draw_debris,
@@ -100,38 +103,11 @@ class PygameTanx:
         self.settings_resolution_option_index = 0
         self.settings_keybind_option_index = 1
         self.settings_fullscreen_option_index = 2
-        self.binding_fields: List[tuple[str, str]] = [
-            ("Move Left", "move_left"),
-            ("Move Right", "move_right"),
-            ("Turret Up", "turret_up"),
-            ("Turret Down", "turret_down"),
-            ("Fire", "fire"),
-            ("Power -", "power_decrease"),
-            ("Power +", "power_increase"),
-        ]
-        self.rebinding_target: Optional[tuple[int, str]] = None
 
-        self.default_bindings = [
-            KeyBindings(
-                move_left=pygame.K_a,
-                move_right=pygame.K_d,
-                turret_up=pygame.K_w,
-                turret_down=pygame.K_s,
-                fire=pygame.K_SPACE,
-                power_decrease=pygame.K_q,
-                power_increase=pygame.K_e,
-            ),
-            KeyBindings(
-                move_left=pygame.K_LEFT,
-                move_right=pygame.K_RIGHT,
-                turret_up=pygame.K_UP,
-                turret_down=pygame.K_DOWN,
-                fire=pygame.K_RETURN,
-                power_decrease=pygame.K_LEFTBRACKET,
-                power_increase=pygame.K_RIGHTBRACKET,
-            ),
-        ]
-        self.player_bindings = [KeyBindings(**vars(binding)) for binding in self.default_bindings]
+        self.keybindings = KeybindingManager()
+        self.player_bindings = self.keybindings.player_bindings
+        self.superpowers = SuperpowerManager(self)
+        self.superpower_active_player: Optional[int] = None
 
         self.sky_color_top = pygame.Color(78, 149, 205)
         self.sky_color_bottom = pygame.Color(19, 57, 84)
@@ -189,6 +165,9 @@ class PygameTanx:
 
         if not self.windowed_fullscreen:
             self._last_regular_settings = TerrainSettings(**vars(self.logic.world.settings))
+
+        for tank in self.logic.tanks:
+            tank.reset_super_power()
 
     def _clone_current_settings(self) -> TerrainSettings:
         settings = self.logic.world.settings
@@ -269,16 +248,6 @@ class PygameTanx:
         preset = self.resolution_presets[self.resolution_index]
         label = str(preset["label"])
         return f"Resolution: {label}"
-
-    def _format_key_name(self, key: int) -> str:
-        name = pygame.key.name(key)
-        return name.upper()
-
-    def _binding_label(self, field: str) -> str:
-        for label, attr in self.binding_fields:
-            if attr == field:
-                return label
-        return field
 
     def _windowed_fullscreen_label(self) -> str:
         label = "Windowed Fullscreen"
@@ -380,20 +349,11 @@ class PygameTanx:
         self.menu_selection = min(current_selection, len(self.menu_options) - 1)
 
     def _build_keybinding_menu_options(self) -> List[tuple[str, Callable[[], None]]]:
-        options: List[tuple[str, Callable[[], None]]] = []
-        for player_idx, prefix in enumerate(["Player 1", "Player 2"]):
-            bindings = self.player_bindings[player_idx]
-            for label, field in self.binding_fields:
-                key_code = getattr(bindings, field)
-                options.append(
-                    (
-                        f"{prefix} {label}: {self._format_key_name(key_code)}",
-                        lambda pi=player_idx, f=field: self._start_rebinding(pi, f),
-                    )
-                )
-        options.append(("Reset to Defaults", self._action_reset_keybindings))
-        options.append(("Back to Settings", self._action_keybindings_back))
-        return options
+        return self.keybindings.build_menu_options(
+            self._select_binding,
+            self._action_reset_keybindings,
+            self._action_keybindings_back,
+        )
 
     def _update_keybinding_menu_options(self) -> None:
         if self.state != "keybind_menu":
@@ -401,14 +361,7 @@ class PygameTanx:
         current_selection = min(self.menu_selection, max(len(self.menu_options) - 1, 0))
         self.menu_options = self._build_keybinding_menu_options()
         self.menu_selection = min(current_selection, len(self.menu_options) - 1)
-        if self.rebinding_target is not None:
-            player_idx, field = self.rebinding_target
-            label = self._binding_label(field)
-            self.menu_message = (
-                f"Press a key for Player {player_idx + 1} {label} (Esc to cancel)"
-            )
-        else:
-            self.menu_message = "Select an action to rebind."
+        self.menu_message = self.keybindings.menu_message()
 
 
     def _activate_menu(self, name: str, message: Optional[str] = None) -> None:
@@ -476,44 +429,89 @@ class PygameTanx:
         self._activate_menu("main_menu", message=message)
 
     def _action_open_keybindings(self) -> None:
-        self.rebinding_target = None
+        self.keybindings.rebinding_target = None
         self._activate_menu("keybind_menu")
+        self.menu_message = self.keybindings.menu_message()
 
     def _action_keybindings_back(self) -> None:
-        self.rebinding_target = None
+        self.keybindings.rebinding_target = None
         self._activate_menu("settings_menu")
 
     def _action_reset_keybindings(self) -> None:
-        self.player_bindings = [KeyBindings(**vars(binding)) for binding in self.default_bindings]
-        self.menu_message = "Key bindings reset to defaults."
+        self.menu_message = self.keybindings.reset_to_defaults()
+        self.player_bindings = self.keybindings.player_bindings
         self._update_keybinding_menu_options()
 
-    def _start_rebinding(self, player_idx: int, field: str) -> None:
-        self.rebinding_target = (player_idx, field)
-        label = self._binding_label(field)
-        self.menu_message = (
-            f"Press a key for Player {player_idx + 1} {label} (Esc to cancel)"
-        )
+    def _select_binding(self, player_idx: int, field: str) -> None:
+        self.menu_message = self.keybindings.start_rebinding(player_idx, field)
         self._update_keybinding_menu_options()
 
-    def _finish_rebinding(self, key: int) -> None:
-        if self.rebinding_target is None:
-            return
-        player_idx, field = self.rebinding_target
-        setattr(self.player_bindings[player_idx], field, key)
-        self.rebinding_target = None
-        label = self._binding_label(field)
-        self.menu_message = (
-            f"Player {player_idx + 1} {label} bound to {self._format_key_name(key)}"
-        )
+    def _finish_binding(self, key: int) -> None:
+        self.menu_message = self.keybindings.finish_rebinding(key)
+        self.player_bindings = self.keybindings.player_bindings
         self._update_keybinding_menu_options()
 
-    def _cancel_rebinding(self) -> None:
-        if self.rebinding_target is None:
-            return
-        self.rebinding_target = None
-        self.menu_message = "Rebinding cancelled."
+    def _cancel_binding(self) -> None:
+        self.menu_message = self.keybindings.cancel_rebinding()
         self._update_keybinding_menu_options()
+
+    def _trigger_superpower(self, kind: str) -> bool:
+        if self.superpowers.is_active() or self._is_animating_projectile():
+            return False
+        tank = self.logic.tanks[self.current_player]
+        if tank.super_power < 1.0:
+            self.message = f"{tank.name}'s superpower is not ready"
+            return False
+        if not self.superpowers.activate(kind, self.current_player):
+            return False
+        tank.reset_super_power()
+        self.superpower_active_player = self.current_player
+        if kind == "bomber":
+            self.message = f"{tank.name} calls in a bomber strike!"
+        else:
+            self.message = f"{tank.name} deploys an assault squad!"
+        return True
+
+    def _apply_superpower_damage(
+        self,
+        x_world: float,
+        y_world: float,
+        damage_scale: float = 1.0,
+        explosion_scale: float = 1.0,
+    ) -> None:
+        result = ShotResult(hit_tank=None, impact_x=x_world, impact_y=y_world, path=[])
+        original_damage = self.logic.damage
+        scaled_damage = max(1, int(original_damage * damage_scale))
+        self.logic.damage = scaled_damage
+        self.logic.apply_shot_effects(result)
+        self.logic.damage = original_damage
+        self.effects.spawn_explosion((x_world, y_world), explosion_scale)
+        if result.fatal_hit:
+            self.effects.spawn_fatal_debris(result, self.logic.tanks, self.tank_colors)
+
+    def _update_super_power(self, shooter: Tank, result: Optional[ShotResult]) -> None:
+        base_gain = 0.08
+        bonus = 0.0
+
+        opponents = [tank for tank in self.logic.tanks if tank is not shooter and tank.alive]
+
+        if result and result.hit_tank and result.hit_tank is not shooter:
+            bonus = 0.75
+        elif result and result.impact_x is not None and opponents:
+            distances = [
+                math.hypot(tank.x - result.impact_x, tank.y - (result.impact_y or tank.y))
+                for tank in opponents
+            ]
+            min_dist = min(distances)
+            if min_dist <= 0.5:
+                bonus = 0.6
+            else:
+                falloff = max(0.0, (6.0 - min_dist) / 6.0)
+                bonus = 0.45 * (falloff ** 2)
+        else:
+            bonus = 0.0
+
+        shooter.add_super_power(base_gain + bonus)
 
     def _action_enter_windowed_fullscreen(self) -> None:
         self._enter_windowed_fullscreen()
@@ -559,6 +557,16 @@ class PygameTanx:
 
     def _update(self, dt: float) -> None:
         self.effects.update(dt, self.logic.world)
+        power_finished = self.superpowers.update(dt)
+        if power_finished and self.superpower_active_player is not None:
+            self.superpower_active_player = None
+            self._advance_turn()
+            self._check_victory()
+            if not self.winner:
+                self.message = f"Next: {self.logic.tanks[self.current_player].name}'s turn"
+
+        if self.superpowers.is_active():
+            return
         if self.winner and self.winner_delay > 0:
             self.winner_delay = max(0.0, self.winner_delay - dt)
 
@@ -598,6 +606,7 @@ class PygameTanx:
         if self.projectile_position:
             draw_projectile(self, self.projectile_position)
         draw_explosions(self)
+        self.superpowers.draw(self.screen)
         if self.state in {"playing", "pause_menu"}:
             draw_ui(self)
         if self.state in {"main_menu", "pause_menu", "post_game_menu", "settings_menu", "keybind_menu"}:
@@ -663,6 +672,9 @@ class PygameTanx:
 
         self.active_shooter = None
 
+        shooter = self.logic.tanks[self.current_player]
+        self._update_super_power(shooter, result)
+
         self._advance_turn()
         self._check_victory()
         if self.winner:
@@ -712,6 +724,8 @@ class PygameTanx:
         self.projectile_result = None
         self.projectile_position = None
         self.cheat_menu_visible = False
+        for player in self.logic.tanks:
+            player.super_power = 1.0
         self._check_victory()
         if self.winner:
             loser = result.fatal_tank or tank
@@ -723,6 +737,15 @@ class PygameTanx:
         else:
             self.winner_delay = 0.0
             self.message = f"Cheat console: {tank.name} detonated"
+
+    def _cheat_fill_super_power(self) -> None:
+        if not self.cheat_enabled:
+            return
+        for tank in self.logic.tanks:
+            tank.super_power = 1.0
+        self.menu_message = "Cheat console: Superpower maxed"
+        self.message = "Cheat console: Superpower maxed"
+        self.cheat_menu_visible = False
     def _advance_turn(self) -> None:
         self.current_player = 1 - self.current_player
 

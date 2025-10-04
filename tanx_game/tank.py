@@ -24,7 +24,7 @@ class Tank:
     shot_power: float = 1.0
     min_power: float = 0.4
     max_power: float = 1.8
-    power_step: float = 0.05
+    power_step: float = 0.1
     last_command: Optional[str] = field(default=None, init=False)
 
     def clamp_turret(self) -> None:

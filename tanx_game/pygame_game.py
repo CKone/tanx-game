@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 try:
     import pygame
@@ -76,50 +76,51 @@ class PygameTanx:
         cell_size: int = 28,
         ui_height: int = 120,
         cheat_enabled: bool = False,
+        start_in_menu: bool = True,
     ) -> None:
         pygame.init()
         pygame.font.init()
 
-        self.logic = Game(player_one, player_two, terrain_settings, seed)
         self.cell_size = cell_size
         self.ui_height = ui_height
-        self.world_width = self.logic.world.width
-        self.world_height = self.logic.world.height
-
-        width = self.world_width * self.cell_size
-        height = self.world_height * self.cell_size + self.ui_height
-
-        self.screen = pygame.display.set_mode((width, height))
-        pygame.display.set_caption("Tanx - Arcade Duel")
-
-        self.clock = pygame.time.Clock()
-        self.running = True
-        self.current_player = 0
-        self.message = f"{self.logic.tanks[0].name}'s turn"
-
-        self.projectile_result: Optional[ShotResult] = None
-        self.projectile_index = 0
-        self.projectile_timer = 0.0
-        self.projectile_interval = 0.03
-        self.projectile_position: Optional[tuple[float, float]] = None
-        self.active_shooter: Optional[Tank] = None
-
-        self.explosions: List[Tuple[tuple[float, float], float, float]] = []
-        self.explosion_duration = 0.45
-        self.trail_particles: List[Tuple[tuple[float, float], float]] = []
-        self.trail_duration = 0.25
-        self.particles: List[Particle] = []
-        self.particle_gravity = 18.0
-        self.debris: List[Debris] = []
         self.cheat_enabled = cheat_enabled
-        self.cheat_menu_visible = False
-
-        self.winner: Optional[Tank] = None
-        self.winner_delay = 0.0
 
         self.font_small = pygame.font.SysFont("consolas", 16)
         self.font_regular = pygame.font.SysFont("consolas", 20)
         self.font_large = pygame.font.SysFont(None, 48)
+
+        self.clock = pygame.time.Clock()
+        self.running = True
+
+        self.player_names = [player_one, player_two]
+
+        self.projectile_interval = 0.03
+        self.explosion_duration = 0.45
+        self.trail_duration = 0.25
+        self.particle_gravity = 18.0
+
+        self.menu_selection = 0
+        self.menu_title = "Tanx - Arcade Duel"
+        self.menu_message: Optional[str] = None
+        self.menu_options: List[tuple[str, Callable[[], None]]] = []
+        self.state = "main_menu" if start_in_menu else "playing"
+        self.active_menu: Optional[str] = "main_menu" if start_in_menu else None
+
+        self.screen = pygame.display.set_mode((640, 480))
+        pygame.display.set_caption("Tanx - Arcade Duel")
+
+        self.projectile_result: Optional[ShotResult] = None
+        self.projectile_index = 0
+        self.projectile_timer = 0.0
+        self.projectile_position: Optional[tuple[float, float]] = None
+        self.active_shooter: Optional[Tank] = None
+        self.explosions: List[Tuple[tuple[float, float], float, float]] = []
+        self.trail_particles: List[Tuple[tuple[float, float], float]] = []
+        self.particles: List[Particle] = []
+        self.debris: List[Debris] = []
+        self.cheat_menu_visible = False
+        self.winner: Optional[Tank] = None
+        self.winner_delay = 0.0
 
         self.player_bindings = [
             KeyBindings(
@@ -149,6 +150,154 @@ class PygameTanx:
         self.projectile_color = pygame.Color(255, 231, 97)
         self.crater_rim_color = pygame.Color(120, 93, 63)
 
+        self._setup_new_match(player_one, player_two, terrain_settings, seed)
+
+        if self.state == "main_menu":
+            self._activate_menu("main_menu")
+
+    def _setup_new_match(
+        self,
+        player_one: str,
+        player_two: str,
+        terrain_settings: Optional[TerrainSettings],
+        seed: Optional[int],
+    ) -> None:
+        self.logic = Game(player_one, player_two, terrain_settings, seed)
+        self.player_names = [player_one, player_two]
+        self._terrain_settings = self.logic.world.settings
+
+        self.world_width = self.logic.world.width
+        self.world_height = self.logic.world.height
+
+        width = self.world_width * self.cell_size
+        height = self.world_height * self.cell_size + self.ui_height
+        if self.screen.get_size() != (width, height):
+            self.screen = pygame.display.set_mode((width, height))
+        pygame.display.set_caption("Tanx - Arcade Duel")
+
+        self.current_player = 0
+        self.message = f"{self.logic.tanks[0].name}'s turn"
+
+        self.projectile_result = None
+        self.projectile_index = 0
+        self.projectile_timer = 0.0
+        self.projectile_position = None
+        self.active_shooter = None
+
+        self.explosions = []
+        self.trail_particles = []
+        self.particles = []
+        self.debris = []
+
+        self.winner = None
+        self.winner_delay = 0.0
+        self.cheat_menu_visible = False
+
+    def _clone_current_settings(self) -> TerrainSettings:
+        settings = self.logic.world.settings
+        return TerrainSettings(**vars(settings))
+
+    def _restart_match(self, *, start_in_menu: bool, message: Optional[str] = None) -> None:
+        settings = self._clone_current_settings()
+        self._setup_new_match(
+            self.player_names[0],
+            self.player_names[1],
+            settings,
+            settings.seed,
+        )
+        if start_in_menu:
+            self._activate_menu("main_menu", message=message)
+        else:
+            self.state = "playing"
+            self.active_menu = None
+            self.menu_message = None
+            if message:
+                self.message = message
+
+    def _activate_menu(self, name: str, message: Optional[str] = None) -> None:
+        self.active_menu = name
+        self.state = name
+        self.menu_selection = 0
+        self.menu_message = message
+        self.cheat_menu_visible = False
+
+        if name == "main_menu":
+            self.menu_title = "Tanx - Arcade Duel"
+            self.menu_options = [
+                ("Start Game", self._action_start_game),
+                ("Exit Game", self._action_exit_game),
+            ]
+        elif name == "pause_menu":
+            self.menu_title = "Pause"
+            self.menu_options = [
+                ("Resume Game", self._action_resume_game),
+                ("Abandon Game", self._action_abandon_game),
+            ]
+        elif name == "post_game_menu":
+            title = f"{self.winner.name} Wins!" if self.winner else "Game Over"
+            self.menu_title = title
+            self.menu_options = [
+                ("Start New Game", self._action_start_new_game),
+                ("Return to Start Menu", self._action_return_to_start_menu),
+            ]
+        else:
+            self.menu_title = "Tanx"
+            self.menu_options = []
+
+        if self.menu_message is None:
+            if name == "main_menu":
+                self.menu_message = "Use ↑/↓ and Enter to choose."
+            elif name == "pause_menu":
+                self.menu_message = "Game paused."
+            elif name == "post_game_menu":
+                self.menu_message = self.message
+
+    def _handle_menu_key(self, key: int) -> None:
+        if key == pygame.K_ESCAPE:
+            if self.state == "main_menu":
+                self._action_exit_game()
+            elif self.state == "pause_menu":
+                self._action_resume_game()
+            elif self.state == "post_game_menu":
+                self._action_return_to_start_menu()
+            return
+
+        if not self.menu_options:
+            return
+
+        if key in {pygame.K_UP, pygame.K_w}:
+            self.menu_selection = (self.menu_selection - 1) % len(self.menu_options)
+            return
+        if key in {pygame.K_DOWN, pygame.K_s}:
+            self.menu_selection = (self.menu_selection + 1) % len(self.menu_options)
+            return
+        if key in {pygame.K_RETURN, pygame.K_SPACE, pygame.K_KP_ENTER}:
+            _, action = self.menu_options[self.menu_selection]
+            action()
+
+    def _action_start_game(self) -> None:
+        self._restart_match(start_in_menu=False)
+
+    def _action_exit_game(self) -> None:
+        self.running = False
+
+    def _action_resume_game(self) -> None:
+        self.state = "playing"
+        self.active_menu = None
+        self.menu_message = None
+
+    def _action_abandon_game(self) -> None:
+        self._restart_match(start_in_menu=True, message="Game abandoned.")
+
+    def _action_start_new_game(self) -> None:
+        self._restart_match(start_in_menu=False)
+
+    def _action_return_to_start_menu(self) -> None:
+        victory_message = None
+        if self.winner:
+            victory_message = f"{self.winner.name} secured the round."
+        self._restart_match(start_in_menu=True, message=victory_message)
+
     # ------------------------------------------------------------------
     # Game Loop helpers
     def run(self) -> None:
@@ -169,8 +318,12 @@ class PygameTanx:
                 self._handle_key(event.key)
 
     def _handle_key(self, key: int) -> None:
+        if self.state in {"main_menu", "pause_menu", "post_game_menu"}:
+            self._handle_menu_key(key)
+            return
+
         if self.cheat_enabled and key == pygame.K_F1:
-            if self._is_animating_projectile():
+            if self._is_animating_projectile() or self.winner:
                 return
             self.cheat_menu_visible = not self.cheat_menu_visible
             self.message = "Cheat console opened" if self.cheat_menu_visible else "Cheat console closed"
@@ -189,15 +342,18 @@ class PygameTanx:
                 return
             return
 
-        if self.winner or self._is_animating_projectile():
+        if self._is_animating_projectile():
             if key == pygame.K_ESCAPE:
-                self.running = False
-            elif key in {pygame.K_r, pygame.K_F5} and self.winner:
-                self._reset()
+                self._activate_menu("pause_menu")
+            return
+
+        if self.winner:
+            if key == pygame.K_ESCAPE:
+                self._activate_menu("post_game_menu")
             return
 
         if key == pygame.K_ESCAPE:
-            self.running = False
+            self._activate_menu("pause_menu")
             return
 
         tank = self.logic.tanks[self.current_player]
@@ -244,6 +400,14 @@ class PygameTanx:
         self._update_debris(dt)
         if self.winner and self.winner_delay > 0:
             self.winner_delay = max(0.0, self.winner_delay - dt)
+
+        if self.state != "playing":
+            return
+
+        if self.winner and self.winner_delay <= 0 and not self._is_animating_projectile():
+            self._activate_menu("post_game_menu", message=self.message)
+            return
+
         if not self._is_animating_projectile():
             return
         self.projectile_timer += dt
@@ -271,7 +435,10 @@ class PygameTanx:
         if self.projectile_position:
             self._draw_projectile(self.projectile_position)
         self._draw_explosions()
-        self._draw_ui()
+        if self.state in {"playing", "pause_menu"}:
+            self._draw_ui()
+        if self.state in {"main_menu", "pause_menu", "post_game_menu"}:
+            self._draw_menu_overlay()
         pygame.display.flip()
 
     # ------------------------------------------------------------------
@@ -383,21 +550,6 @@ class PygameTanx:
         else:
             self.winner_delay = 0.0
             self.message = f"Cheat console: {tank.name} detonated"
-    # ------------------------------------------------------------------
-    # Utilities
-    def _reset(self) -> None:
-        player_names = [tank.name for tank in self.logic.tanks]
-        settings = self.logic.world.settings
-        self.__init__(
-            player_one=player_names[0],
-            player_two=player_names[1],
-            terrain_settings=settings,
-            seed=settings.seed,
-            cell_size=self.cell_size,
-            ui_height=self.ui_height,
-            cheat_enabled=self.cheat_enabled,
-        )
-
     def _advance_turn(self) -> None:
         self.current_player = 1 - self.current_player
 
@@ -849,6 +1001,54 @@ class PygameTanx:
             screen_y = y * self.cell_size + offset_y - radius
             self.screen.blit(overlay, (screen_x, screen_y))
 
+    def _draw_menu_overlay(self) -> None:
+        if self.state not in {"main_menu", "pause_menu", "post_game_menu"}:
+            return
+        alpha = 200 if self.state == "main_menu" else 160
+        overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, alpha))
+        self.screen.blit(overlay, (0, 0))
+
+        center_x = self.screen.get_width() // 2
+        center_y = self.screen.get_height() // 2
+
+        title_surface = self.font_large.render(self.menu_title, True, pygame.Color("white"))
+        title_rect = title_surface.get_rect(center=(center_x, center_y - 120))
+        self.screen.blit(title_surface, title_rect)
+
+        if self.menu_message:
+            message_surface = self.font_regular.render(self.menu_message, True, pygame.Color(220, 220, 220))
+            message_rect = message_surface.get_rect(center=(center_x, title_rect.bottom + 36))
+            self.screen.blit(message_surface, message_rect)
+            options_start_y = message_rect.bottom + 24
+        else:
+            options_start_y = title_rect.bottom + 32
+
+        for idx, (label, _) in enumerate(self.menu_options):
+            is_selected = idx == self.menu_selection
+            color = pygame.Color("white") if is_selected else pygame.Color(200, 200, 200)
+            text_surface = self.font_regular.render(label, True, color)
+            text_rect = text_surface.get_rect(center=(center_x, options_start_y + idx * 40))
+            if is_selected:
+                highlight = pygame.Surface((text_rect.width + 36, text_rect.height + 12), pygame.SRCALPHA)
+                highlight.fill((255, 255, 255, 50))
+                highlight_rect = highlight.get_rect(center=text_rect.center)
+                self.screen.blit(highlight, highlight_rect)
+            self.screen.blit(text_surface, text_rect)
+
+        footer_text = None
+        if self.state == "main_menu":
+            footer_text = "Esc exits the game"
+        elif self.state == "pause_menu":
+            footer_text = "Esc resumes"
+        elif self.state == "post_game_menu":
+            footer_text = "Esc returns to the start menu"
+
+        if footer_text:
+            footer_surface = self.font_small.render(footer_text, True, pygame.Color(180, 180, 180))
+            footer_rect = footer_surface.get_rect(center=(center_x, self.screen.get_height() - 36))
+            self.screen.blit(footer_surface, footer_rect)
+
     def _draw_ui(self) -> None:
         tank_panel = " | ".join(tank.info_line() for tank in self.logic.tanks)
         panel_surface = self.font_regular.render(tank_panel, True, pygame.Color("white"))
@@ -863,30 +1063,15 @@ class PygameTanx:
         instructions = [
             "Player 1: A/D move, W/S aim, Space fire, Q/E power",
             "Player 2: ←/→ move, ↑/↓ aim, Enter fire, [/ ] power",
-            "Esc to quit",
-            "R to restart once the duel ends",
+            "Esc opens the pause menu",
         ]
         if self.cheat_enabled:
-            instructions.append("F1: open cheat console")
+            instructions.append("F1 toggles the cheat console")
         for idx, line in enumerate(instructions):
             text_surface = self.font_small.render(line, True, pygame.Color(200, 200, 200))
             self.screen.blit(text_surface, (16, 76 + idx * 18))
 
-        if self.winner:
-            if self.winner_delay <= 0:
-                overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
-                overlay.fill((0, 0, 0, 140))
-                self.screen.blit(overlay, (0, 0))
-                win_text = f"{self.winner.name} Wins!"
-                text_surface = self.font_large.render(win_text, True, pygame.Color("white"))
-                rect = text_surface.get_rect(center=(self.screen.get_width() / 2, self.ui_height / 2))
-                self.screen.blit(text_surface, rect)
-                prompt_surface = self.font_regular.render("Press R to restart or Esc to quit", True, pygame.Color("white"))
-                prompt_rect = prompt_surface.get_rect(
-                    center=(self.screen.get_width() / 2, self.ui_height / 2 + 48)
-                )
-                self.screen.blit(prompt_surface, prompt_rect)
-        elif self.cheat_enabled and self.cheat_menu_visible:
+        if self.cheat_enabled and self.cheat_menu_visible:
             overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 180))
             self.screen.blit(overlay, (0, 0))

@@ -8,8 +8,8 @@ import time
 from dataclasses import dataclass
 from typing import List, Optional
 
-from .tank import Tank
-from .world import TerrainSettings, World
+from tanx_game.core.tank import Tank
+from tanx_game.core.world import TerrainSettings, World
 
 
 @dataclass

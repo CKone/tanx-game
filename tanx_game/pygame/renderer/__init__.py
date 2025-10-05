@@ -1,6 +1,6 @@
-"""Rendering utilities used by the pygame client."""
+"""Rendering helpers for the pygame front-end."""
 
-from .scene import (
+from tanx_game.pygame.renderer.scene import (
     draw_background,
     draw_debris,
     draw_explosions,
@@ -13,11 +13,11 @@ from .scene import (
 
 __all__ = [
     "draw_background",
-    "draw_world",
-    "draw_tanks",
-    "draw_projectile",
-    "draw_trails",
-    "draw_particles",
     "draw_debris",
     "draw_explosions",
+    "draw_particles",
+    "draw_projectile",
+    "draw_trails",
+    "draw_tanks",
+    "draw_world",
 ]

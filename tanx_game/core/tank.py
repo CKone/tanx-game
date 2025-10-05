@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .world import World
+from tanx_game.core.world import World
 
 
 @dataclass
@@ -16,7 +16,7 @@ class Tank:
     x: int
     y: int
     facing: int  # 1 for right, -1 for left
-    hp: int = 10
+    hp: int = 100
     turret_angle: int = 45
     min_angle: int = -75
     max_angle: int = 75
@@ -25,6 +25,7 @@ class Tank:
     min_power: float = 0.4
     max_power: float = 1.8
     power_step: float = 0.1
+    super_power: float = 0.0
     last_command: Optional[str] = field(default=None, init=False)
 
     def clamp_turret(self) -> None:
@@ -76,6 +77,12 @@ class Tank:
     @property
     def alive(self) -> bool:
         return self.hp > 0
+
+    def add_super_power(self, amount: float) -> None:
+        self.super_power = max(0.0, min(1.0, self.super_power + amount))
+
+    def reset_super_power(self) -> None:
+        self.super_power = 0.0
 
     def info_line(self) -> str:
         facing_arrow = ">" if self.facing > 0 else "<"

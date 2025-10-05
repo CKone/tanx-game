@@ -2,22 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import pygame
 
-from ..tank import Tank
-
-
-@dataclass
-class KeyBindings:
-    move_left: int
-    move_right: int
-    turret_up: int
-    turret_down: int
-    fire: int
-    power_decrease: int
-    power_increase: int
+from tanx_game.core.tank import Tank
+from tanx_game.pygame.keybindings import KeyBindings
 
 
 class InputHandler:
@@ -36,12 +24,14 @@ class InputHandler:
     # Internal helpers
     def _handle_key(self, key: int) -> None:
         app = self.app
+        if app.superpowers.is_active():
+            return
         if app.state in {"main_menu", "pause_menu", "post_game_menu", "settings_menu", "keybind_menu"}:
             self._handle_menu_key(key)
             return
 
         if app.cheat_enabled and key == pygame.K_F1:
-            if app._is_animating_projectile() or app.winner:
+            if app.session.is_animating_projectile() or app.winner:
                 return
             app.cheat_menu_visible = not app.cheat_menu_visible
             app.message = (
@@ -60,9 +50,19 @@ class InputHandler:
             if key == pygame.K_2:
                 app._cheat_explode(1)
                 return
+            if key in {pygame.K_3, pygame.K_KP3}:
+                app._cheat_fill_super_power()
+                return
             return
 
-        if app._is_animating_projectile():
+        current_tank = app.session.current_tank
+        if current_tank.super_power >= 1.0:
+            if key == pygame.K_b and app._trigger_superpower("bomber"):
+                return
+            if key == pygame.K_n and app._trigger_superpower("squad"):
+                return
+
+        if app.session.is_animating_projectile():
             if key == pygame.K_ESCAPE:
                 app._activate_menu("pause_menu")
             return
@@ -76,7 +76,7 @@ class InputHandler:
             app._activate_menu("pause_menu")
             return
 
-        tank = app.logic.tanks[app.current_player]
+        tank = current_tank
         bindings = app.player_bindings[app.current_player]
 
         if key == bindings.move_left:
@@ -117,8 +117,8 @@ class InputHandler:
         app = self.app
         if key == pygame.K_ESCAPE:
             if app.state == "keybind_menu":
-                if app.rebinding_target is not None:
-                    app._cancel_rebinding()
+                if app.keybindings.rebinding_target is not None:
+                    app._cancel_binding()
                 else:
                     app._action_keybindings_back()
                 return
@@ -135,7 +135,7 @@ class InputHandler:
                 app._action_return_to_start_menu()
                 return
 
-        if app.state == "settings_menu" and app.menu_selection == app.settings_resolution_option_index:
+        if app.state == "settings_menu" and app.menu.selection == app.settings_resolution_option_index:
             if key == pygame.K_LEFT:
                 app._change_resolution(-1)
                 return
@@ -144,22 +144,21 @@ class InputHandler:
                 return
 
         if app.state == "keybind_menu":
-            if app.rebinding_target is not None:
-                app._finish_rebinding(key)
+            if app.keybindings.rebinding_target is not None:
+                app._finish_binding(key)
                 return
 
-        if not app.menu_options:
+        if not app.menu.options:
             return
 
         if key in {pygame.K_UP, pygame.K_w}:
-            app.menu_selection = (app.menu_selection - 1) % len(app.menu_options)
+            app.menu.change_selection(-1)
             return
         if key in {pygame.K_DOWN, pygame.K_s}:
-            app.menu_selection = (app.menu_selection + 1) % len(app.menu_options)
+            app.menu.change_selection(1)
             return
         if key in {pygame.K_RETURN, pygame.K_SPACE, pygame.K_KP_ENTER}:
-            _, action = app.menu_options[app.menu_selection]
-            action()
+            app.menu.execute_current()
 
 
 __all__ = ["InputHandler", "KeyBindings"]

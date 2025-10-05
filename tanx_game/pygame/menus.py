@@ -85,19 +85,35 @@ def draw_menu_overlay(app) -> None:
     center_x = surface.get_width() // 2
     center_y = surface.get_height() // 2
 
-    title_surface = app.font_large.render(app.menu.title, True, pygame.Color("white"))
-    title_rect = title_surface.get_rect(center=(center_x, center_y - 120))
-    surface.blit(title_surface, title_rect)
+    title_lines = app.menu.title.splitlines() or [app.menu.title]
+    line_spacing = max(6, app.font_large.get_height() // 6)
+    title_surfaces = [
+        app.font_large.render(line, True, pygame.Color("white"))
+        for line in title_lines
+    ]
+    total_height = sum(s.get_height() for s in title_surfaces)
+    if len(title_surfaces) > 1:
+        total_height += line_spacing * (len(title_surfaces) - 1)
+    block_top = center_y - 120 - total_height // 2
+    current_top = block_top
+    title_bottom = center_y - 120
+    for title_surface in title_surfaces:
+        line_height = title_surface.get_height()
+        line_center_y = current_top + line_height // 2
+        title_rect = title_surface.get_rect(center=(center_x, line_center_y))
+        surface.blit(title_surface, title_rect)
+        title_bottom = title_rect.bottom
+        current_top = title_rect.bottom + line_spacing
 
     if app.menu.message:
         message_surface = app.font_regular.render(
             app.menu.message, True, pygame.Color(220, 220, 220)
         )
-        message_rect = message_surface.get_rect(center=(center_x, title_rect.bottom + 36))
+        message_rect = message_surface.get_rect(center=(center_x, title_bottom + 36))
         surface.blit(message_surface, message_rect)
         options_start_y = message_rect.bottom + 24
     else:
-        options_start_y = title_rect.bottom + 32
+        options_start_y = title_bottom + 32
 
     option_spacing = 40
     option_font = app.font_regular
@@ -108,7 +124,7 @@ def draw_menu_overlay(app) -> None:
     total_options_height = len(app.menu.options) * option_spacing
     max_start = surface.get_height() - 80 - total_options_height
     options_start_y = min(options_start_y, max_start)
-    options_start_y = max(options_start_y, title_rect.bottom + 16)
+    options_start_y = max(options_start_y, title_bottom + 16)
 
     for idx, option in enumerate(app.menu.options):
         is_selected = idx == app.menu.selection

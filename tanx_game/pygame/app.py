@@ -211,7 +211,10 @@ class PygameTanx:
         self.menu.register(
             "main_menu",
             MenuDefinition(
-                title="Tanx - Arcade Duel",
+                title=(
+                    "Tanx - Arcade Duel\n"
+                    "A Father and Son Project of an old school tank game"
+                ),
                 build_options=lambda: [
                     MenuOption("Start Game", self._action_start_game),
                     MenuOption("Settings", self._action_open_settings),

@@ -1,6 +1,6 @@
 """Top-level package for the Tanx tank battle game."""
 
-from .core import (
+from tanx_game.core import (
     Game,
     GameSession,
     ProjectileStep,
@@ -9,7 +9,7 @@ from .core import (
     TerrainSettings,
     World,
 )
-from .pygame import PygameTanx, run_pygame
+from tanx_game.pygame import PygameTanx, run_pygame
 
 __all__ = [
     "Game",

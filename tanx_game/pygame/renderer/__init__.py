@@ -1,6 +1,6 @@
 """Rendering helpers for the pygame front-end."""
 
-from .scene import (
+from tanx_game.pygame.renderer.scene import (
     draw_background,
     draw_debris,
     draw_explosions,

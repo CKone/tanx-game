@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pygame
 
-from ..core.tank import Tank
-from .keybindings import KeyBindings
+from tanx_game.core.tank import Tank
+from tanx_game.pygame.keybindings import KeyBindings
 
 
 class InputHandler:

@@ -6,8 +6,8 @@ import math
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence
 
-from .game import Game, ShotResult
-from .tank import Tank
+from tanx_game.core.game import Game, ShotResult
+from tanx_game.core.tank import Tank
 
 
 @dataclass

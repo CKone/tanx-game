@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .world import World
+from tanx_game.core.world import World
 
 
 @dataclass

@@ -12,16 +12,16 @@ except ImportError as exc:  # pragma: no cover - depends on runtime environment
         "The pygame package is required to run the graphical version of Tanx."
     ) from exc
 
-from ..core.game import Game, ShotResult
-from ..core.session import GameSession, ProjectileStep
-from ..core.tank import Tank
-from ..core.world import TerrainSettings
-from .display import DisplayManager
-from .effects import EffectsSystem
-from .input import InputHandler
-from .keybindings import KeybindingManager, KeyBindings
-from .menu_controller import MenuController, MenuDefinition, MenuOption
-from .renderer import (
+from tanx_game.core.game import Game, ShotResult
+from tanx_game.core.session import GameSession, ProjectileStep
+from tanx_game.core.tank import Tank
+from tanx_game.core.world import TerrainSettings
+from tanx_game.pygame.display import DisplayManager
+from tanx_game.pygame.effects import EffectsSystem
+from tanx_game.pygame.input import InputHandler
+from tanx_game.pygame.keybindings import KeybindingManager, KeyBindings
+from tanx_game.pygame.menu_controller import MenuController, MenuDefinition, MenuOption
+from tanx_game.pygame.renderer import (
     draw_background,
     draw_debris,
     draw_explosions,
@@ -31,8 +31,8 @@ from .renderer import (
     draw_tanks,
     draw_world,
 )
-from .menus import draw_menu_overlay, draw_ui
-from .superpowers import SuperpowerManager
+from tanx_game.pygame.menus import draw_menu_overlay, draw_ui
+from tanx_game.pygame.superpowers import SuperpowerManager
 
 
 class PygameTanx:

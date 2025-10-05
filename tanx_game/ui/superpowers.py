@@ -96,14 +96,21 @@ class BomberPower(SuperpowerBase):
             ):
                 self.finished = True
 
-        ground_y = self.offset_y + self.world_height * self.cell - self.cell * 0.2
         for bomb in list(self.bombs):
             bomb["vy"] += self.gravity * dt
             bomb["x"] += bomb["vx"] * dt
             bomb["y"] += bomb["vy"] * dt
-            if bomb["y"] >= ground_y:
-                x_world, y_world = self.screen_to_world(bomb["x"], ground_y)
-                self.apply_damage(x_world, y_world, damage_scale=0.85, explosion_scale=1.2)
+            x_world, y_world = self.screen_to_world(bomb["x"], bomb["y"])
+            ground_height = self.app.logic.world.ground_height(x_world)
+            if ground_height is None:
+                continue
+            if y_world >= ground_height:
+                self.apply_damage(
+                    x_world,
+                    ground_height,
+                    damage_scale=0.85,
+                    explosion_scale=1.2,
+                )
                 self.bombs.remove(bomb)
 
         return self.finished and not self.bombs

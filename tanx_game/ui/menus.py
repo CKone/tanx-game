@@ -85,13 +85,13 @@ def draw_menu_overlay(app) -> None:
     center_x = surface.get_width() // 2
     center_y = surface.get_height() // 2
 
-    title_surface = app.font_large.render(app.menu_title, True, pygame.Color("white"))
+    title_surface = app.font_large.render(app.menu.title, True, pygame.Color("white"))
     title_rect = title_surface.get_rect(center=(center_x, center_y - 120))
     surface.blit(title_surface, title_rect)
 
-    if app.menu_message:
+    if app.menu.message:
         message_surface = app.font_regular.render(
-            app.menu_message, True, pygame.Color(220, 220, 220)
+            app.menu.message, True, pygame.Color(220, 220, 220)
         )
         message_rect = message_surface.get_rect(center=(center_x, title_rect.bottom + 36))
         surface.blit(message_surface, message_rect)
@@ -105,15 +105,15 @@ def draw_menu_overlay(app) -> None:
     if app.state == "keybind_menu":
         option_spacing = max(option_height + 8, 28)
 
-    total_options_height = len(app.menu_options) * option_spacing
+    total_options_height = len(app.menu.options) * option_spacing
     max_start = surface.get_height() - 80 - total_options_height
     options_start_y = min(options_start_y, max_start)
     options_start_y = max(options_start_y, title_rect.bottom + 16)
 
-    for idx, (label, _) in enumerate(app.menu_options):
-        is_selected = idx == app.menu_selection
+    for idx, option in enumerate(app.menu.options):
+        is_selected = idx == app.menu.selection
         color = pygame.Color("white") if is_selected else pygame.Color(200, 200, 200)
-        text_surface = option_font.render(label, True, color)
+        text_surface = option_font.render(option.label, True, color)
         text_rect = text_surface.get_rect(center=(center_x, options_start_y + idx * option_spacing))
         if is_selected:
             highlight = pygame.Surface((text_rect.width + 36, text_rect.height + 12), pygame.SRCALPHA)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Callable, List, Optional, Tuple
+from typing import List, Optional
 
 try:
     import pygame
@@ -16,10 +16,12 @@ except ImportError as exc:  # pragma: no cover - depends on runtime environment
 from .game import Game, ShotResult
 from .tank import Tank
 from .world import TerrainSettings
+from .ui.display import DisplayManager
 from .ui.effects import EffectsSystem
 from .ui.input import InputHandler
 from .ui.superpowers import SuperpowerManager
 from .ui.keybindings import KeybindingManager, KeyBindings
+from .ui.menu_controller import MenuController, MenuDefinition, MenuOption
 from .ui.renderer.scene import (
     draw_background,
     draw_debris,
@@ -50,9 +52,14 @@ class PygameTanx:
         pygame.init()
         pygame.font.init()
 
-        self.cell_size = cell_size
-        self.ui_height = ui_height
         self.cheat_enabled = cheat_enabled
+        self._ui_height = ui_height
+
+        self.display = DisplayManager(
+            cell_size=cell_size,
+            ui_height=ui_height,
+            caption="Tanx - Arcade Duel",
+        )
 
         self.font_small = pygame.font.SysFont("consolas", 16)
         self.font_regular = pygame.font.SysFont("consolas", 20)
@@ -71,22 +78,11 @@ class PygameTanx:
         )
         self.input = InputHandler(self)
 
-        self.menu_selection = 0
-        self.menu_title = "Tanx - Arcade Duel"
-        self.menu_message: Optional[str] = None
-        self.menu_options: List[tuple[str, Callable[[], None]]] = []
+        self.menu = MenuController()
         self.state = "main_menu" if start_in_menu else "playing"
-        self.active_menu: Optional[str] = "main_menu" if start_in_menu else None
-        self._settings_instructions = "Use ←/→ to adjust the resolution, Enter toggles fullscreen."
-
-        self.windowed_fullscreen = False
-        self.windowed_fullscreen_size: Optional[Tuple[int, int]] = None
-        self._display_flags = 0
-        self.screen = pygame.display.set_mode((640, 480), self._display_flags)
-        pygame.display.set_caption("Tanx - Arcade Duel")
-        self.display_surface = self.screen
-        self.render_surface: Optional[pygame.Surface] = None
-        self.playfield_offset_x = 0
+        self._settings_instructions = (
+            "Use ←/→ to adjust the resolution, Enter toggles fullscreen."
+        )
 
         self.projectile_result: Optional[ShotResult] = None
         self.projectile_index = 0
@@ -97,9 +93,6 @@ class PygameTanx:
         self.winner: Optional[Tank] = None
         self.winner_delay = 0.0
 
-        self._supported_cell_sizes = [20, 24, 28, 32, 36]
-        self.resolution_presets: List[dict[str, object]] = []
-        self.resolution_index = 0
         self.settings_resolution_option_index = 0
         self.settings_keybind_option_index = 1
         self.settings_fullscreen_option_index = 2
@@ -116,12 +109,56 @@ class PygameTanx:
         self.projectile_color = pygame.Color(255, 231, 97)
         self.crater_rim_color = pygame.Color(120, 93, 63)
 
+        self._register_menus()
+
         self._setup_new_match(player_one, player_two, terrain_settings, seed)
 
         if self.state == "main_menu":
             self._activate_menu("main_menu")
 
         self._last_regular_settings = TerrainSettings(**vars(self.logic.world.settings))
+
+    @property
+    def cell_size(self) -> int:
+        return self.display.cell_size
+
+    @cell_size.setter
+    def cell_size(self, value: int) -> None:
+        self.display.cell_size = value
+
+    @property
+    def ui_height(self) -> int:
+        return self._ui_height
+
+    @property
+    def screen(self) -> pygame.Surface:
+        return self.display.screen
+
+    @property
+    def display_surface(self) -> pygame.Surface:
+        return self.display.display_surface
+
+    @property
+    def render_surface(self) -> Optional[pygame.Surface]:
+        return self.display.render_surface
+
+    @property
+    def playfield_offset_x(self) -> int:
+        return self.display.playfield_offset_x
+
+    @property
+    def world_width(self) -> int:
+        try:
+            return self.logic.world.width
+        except AttributeError:
+            return 0
+
+    @property
+    def world_height(self) -> int:
+        try:
+            return self.logic.world.height
+        except AttributeError:
+            return 0
 
     def _setup_new_match(
         self,
@@ -134,15 +171,10 @@ class PygameTanx:
         self.player_names = [player_one, player_two]
         self._terrain_settings = self.logic.world.settings
 
-        self.world_width = self.logic.world.width
-        self.world_height = self.logic.world.height
-
-        width = self.world_width * self.cell_size
-        height = self.world_height * self.cell_size + self.ui_height
-        if self.windowed_fullscreen and self.windowed_fullscreen_size:
-            self._set_display_mode(self.windowed_fullscreen_size, pygame.NOFRAME)
-        else:
-            self._set_display_mode((width, height))
+        self.display.configure_world(
+            self.logic.world.width,
+            self.logic.world.height,
+        )
 
         self.effects.cell_size = self.cell_size
         self.effects.ui_height = self.ui_height
@@ -161,9 +193,7 @@ class PygameTanx:
         self.winner_delay = 0.0
         self.cheat_menu_visible = False
 
-        self._sync_resolution_presets()
-
-        if not self.windowed_fullscreen:
+        if not self.display.windowed_fullscreen:
             self._last_regular_settings = TerrainSettings(**vars(self.logic.world.settings))
 
         for tank in self.logic.tanks:
@@ -172,6 +202,58 @@ class PygameTanx:
     def _clone_current_settings(self) -> TerrainSettings:
         settings = self.logic.world.settings
         return TerrainSettings(**vars(settings))
+
+    def _register_menus(self) -> None:
+        self.menu.register(
+            "main_menu",
+            MenuDefinition(
+                title="Tanx - Arcade Duel",
+                build_options=lambda: [
+                    MenuOption("Start Game", self._action_start_game),
+                    MenuOption("Settings", self._action_open_settings),
+                    MenuOption("Exit Game", self._action_exit_game),
+                ],
+                default_message=lambda: "Use ↑/↓ and Enter to choose.",
+            ),
+        )
+        self.menu.register(
+            "pause_menu",
+            MenuDefinition(
+                title="Pause",
+                build_options=lambda: [
+                    MenuOption("Resume Game", self._action_resume_game),
+                    MenuOption("Abandon Game", self._action_abandon_game),
+                ],
+                default_message=lambda: "Game paused.",
+            ),
+        )
+        self.menu.register(
+            "settings_menu",
+            MenuDefinition(
+                title="Settings",
+                build_options=self._build_settings_menu_options,
+                default_message=lambda: self._settings_instructions,
+            ),
+        )
+        self.menu.register(
+            "keybind_menu",
+            MenuDefinition(
+                title="Key Bindings",
+                build_options=self._build_keybinding_menu_options,
+                default_message=self.keybindings.menu_message,
+            ),
+        )
+        self.menu.register(
+            "post_game_menu",
+            MenuDefinition(
+                title="Game Over",
+                build_options=lambda: [
+                    MenuOption("Start New Game", self._action_start_new_game),
+                    MenuOption("Return to Start Menu", self._action_return_to_start_menu),
+                ],
+                default_message=lambda: self.message,
+            ),
+        )
 
     def _restart_match(self, *, start_in_menu: bool, message: Optional[str] = None) -> None:
         settings = self._clone_current_settings()
@@ -185,233 +267,99 @@ class PygameTanx:
             self._activate_menu("main_menu", message=message)
         else:
             self.state = "playing"
-            self.active_menu = None
-            self.menu_message = None
+            self._close_menu()
             if message:
                 self.message = message
 
-    def _set_display_mode(self, size: tuple[int, int], flags: int = 0) -> None:
-        if self._display_flags != flags or self.display_surface.get_size() != size:
-            self.display_surface = pygame.display.set_mode(size, flags)
-            self._display_flags = flags
-            pygame.display.set_caption("Tanx - Arcade Duel")
-        self._update_render_target()
-
-    def _update_render_target(self) -> None:
-        if self.windowed_fullscreen:
-            width = self.world_width * self.cell_size
-            height = self.world_height * self.cell_size + self.ui_height
-            desired = (width, height)
-            if self.render_surface is None or self.render_surface.get_size() != desired:
-                self.render_surface = pygame.Surface(desired).convert_alpha()
-            self.screen = self.render_surface
-        else:
-            self.render_surface = None
-            self.screen = self.display_surface
-        self._update_playfield_offset()
-
-    def _update_playfield_offset(self) -> None:
-        if not hasattr(self, "world_width") or not hasattr(self, "cell_size"):
-            self.playfield_offset_x = 0
-            return
-        playfield_width = self.world_width * self.cell_size
-        screen_width = self.screen.get_width()
-        self.playfield_offset_x = max(0, (screen_width - playfield_width) // 2)
-
-    def _sync_resolution_presets(self) -> None:
-        if not hasattr(self, "world_width") or not hasattr(self, "world_height"):
-            return
-        unique_sizes = sorted(set(self._supported_cell_sizes + [self.cell_size]))
-        presets: List[dict[str, object]] = []
-        for cell_size in unique_sizes:
-            width = self.world_width * cell_size
-            height = self.world_height * cell_size + self.ui_height
-            presets.append(
-                {
-                    "cell_size": cell_size,
-                    "label": f"{width}×{height}",
-                    "size": (width, height),
-                }
-            )
-        self.resolution_presets = presets
-        self.resolution_index = 0
-        for idx, preset in enumerate(presets):
-            if int(preset["cell_size"]) == self.cell_size:
-                self.resolution_index = idx
-                break
-
     def _resolution_option_label(self) -> str:
-        if not self.resolution_presets:
-            self._sync_resolution_presets()
-        if not self.resolution_presets:
-            return "Resolution: unavailable"
-        preset = self.resolution_presets[self.resolution_index]
-        label = str(preset["label"])
-        return f"Resolution: {label}"
+        return self.display.resolution_option_label()
 
     def _windowed_fullscreen_label(self) -> str:
-        label = "Windowed Fullscreen"
-        if self.windowed_fullscreen_size:
-            width, height = self.windowed_fullscreen_size
-            label = f"{label} ({width}×{height})"
-            return label
+        return self.display.windowed_fullscreen_label()
 
     def _enter_windowed_fullscreen(self) -> None:
-        try:
-            desktops = pygame.display.get_desktop_sizes()
-        except AttributeError:
-            desktops = []
-        if not desktops:
-            info = pygame.display.Info()
-            desktops = [(info.current_w, info.current_h)] if info.current_w and info.current_h else []
-        if not desktops:
-            if self.state == "settings_menu":
-                self.menu_message = "Desktop size unavailable"
-            return
-        width, height = desktops[0]
-        if width <= 0 or height <= 0:
-            if self.state == "settings_menu":
-                self.menu_message = "Desktop size unavailable"
-            return
-        available_height = max(1, height - self.ui_height)
         base_settings = self._last_regular_settings
-        height_cells = max(1, base_settings.height)
-        cell_from_height = max(4, available_height // height_cells)
-        cell_size = min(max(self._supported_cell_sizes), cell_from_height)
-        if cell_size not in self._supported_cell_sizes:
-            self._supported_cell_sizes.append(cell_size)
-            self._supported_cell_sizes.sort()
-
-        width_cells = max(base_settings.width, max(1, width // max(1, cell_size)))
-        new_settings = TerrainSettings(**vars(base_settings))
-        new_settings.width = width_cells
-
-        self.windowed_fullscreen = True
-        self.windowed_fullscreen_size = (width, height)
-        self.cell_size = cell_size
+        new_settings, message = self.display.enter_windowed_fullscreen(base_settings)
+        if new_settings is None:
+            if self.state == "settings_menu" and message:
+                self.menu.set_message(message)
+            return
         self._setup_new_match(
             self.player_names[0],
             self.player_names[1],
             new_settings,
             new_settings.seed,
         )
-        if self.state == "settings_menu":
-            self.menu_message = f"Windowed fullscreen {width}×{height}"
+        if self.state == "settings_menu" and message:
+            self.menu.set_message(message)
             self._update_settings_menu_options()
 
     def _apply_resolution(self, cell_size: int) -> None:
-        updated = cell_size != self.cell_size or self.windowed_fullscreen
-        self.windowed_fullscreen = False
-        self.windowed_fullscreen_size = None
-        if updated:
-            self.cell_size = cell_size
-            settings = TerrainSettings(**vars(self._last_regular_settings))
-            self._setup_new_match(
-                self.player_names[0],
-                self.player_names[1],
-                settings,
-                settings.seed,
-            )
-        self._sync_resolution_presets()
+        if not self.display.apply_resolution(cell_size):
+            return
+        settings = TerrainSettings(**vars(self._last_regular_settings))
+        self._setup_new_match(
+            self.player_names[0],
+            self.player_names[1],
+            settings,
+            settings.seed,
+        )
         if self.state == "settings_menu":
             self._update_settings_menu_options()
 
     def _change_resolution(self, direction: int) -> None:
-        if not self.resolution_presets:
-            self._sync_resolution_presets()
-        if not self.resolution_presets:
+        preset = self.display.change_resolution(direction)
+        if preset is None:
             return
-        target_index = (self.resolution_index + direction) % len(self.resolution_presets)
-        target = self.resolution_presets[target_index]
-        label = str(target["label"])
-        self.resolution_index = target_index
-        self._apply_resolution(int(target["cell_size"]))
+        self._apply_resolution(preset.cell_size)
         if self.state == "settings_menu":
-            self.menu_message = f"Resolution set to {label}"
+            self.menu.set_message(f"Resolution set to {preset.label}")
             self._update_settings_menu_options()
 
-    def _build_settings_menu_options(self) -> List[tuple[str, Callable[[], None]]]:
+    def _build_settings_menu_options(self) -> List[MenuOption]:
         self.settings_resolution_option_index = 0
         self.settings_keybind_option_index = 1
         self.settings_fullscreen_option_index = 2
         return [
-            (self._resolution_option_label(), self._action_cycle_resolution_forward),
-            ("Configure Keybindings", self._action_open_keybindings),
-            (self._windowed_fullscreen_label(), self._action_enter_windowed_fullscreen),
-            ("Back to Start Menu", self._action_settings_back),
+            MenuOption(self._resolution_option_label(), self._action_cycle_resolution_forward),
+            MenuOption("Configure Keybindings", self._action_open_keybindings),
+            MenuOption(self._windowed_fullscreen_label(), self._action_enter_windowed_fullscreen),
+            MenuOption("Back to Start Menu", self._action_settings_back),
         ]
 
     def _update_settings_menu_options(self) -> None:
         if self.state != "settings_menu":
             return
-        current_selection = min(self.menu_selection, max(len(self.menu_options) - 1, 0))
-        self.menu_options = self._build_settings_menu_options()
-        self.menu_selection = min(current_selection, len(self.menu_options) - 1)
+        self.menu.update_options()
 
-    def _build_keybinding_menu_options(self) -> List[tuple[str, Callable[[], None]]]:
-        return self.keybindings.build_menu_options(
+    def _build_keybinding_menu_options(self) -> List[MenuOption]:
+        entries = self.keybindings.build_menu_options(
             self._select_binding,
             self._action_reset_keybindings,
             self._action_keybindings_back,
         )
+        return [MenuOption(label, action) for (label, action) in entries]
 
     def _update_keybinding_menu_options(self) -> None:
         if self.state != "keybind_menu":
             return
-        current_selection = min(self.menu_selection, max(len(self.menu_options) - 1, 0))
-        self.menu_options = self._build_keybinding_menu_options()
-        self.menu_selection = min(current_selection, len(self.menu_options) - 1)
-        self.menu_message = self.keybindings.menu_message()
+        self.menu.update_options()
+        self.menu.set_message(self.keybindings.menu_message())
 
 
     def _activate_menu(self, name: str, message: Optional[str] = None) -> None:
-        self.active_menu = name
         self.state = name
-        self.menu_selection = 0
-        self.menu_message = message
         self.cheat_menu_visible = False
+        self.menu.activate(name, message=message)
+        if name == "post_game_menu" and self.winner:
+            self.menu.title = f"{self.winner.name} Wins!"
 
-        if name == "main_menu":
-            self.menu_title = "Tanx - Arcade Duel"
-            self.menu_options = [
-                ("Start Game", self._action_start_game),
-                ("Settings", self._action_open_settings),
-                ("Exit Game", self._action_exit_game),
-            ]
-        elif name == "pause_menu":
-            self.menu_title = "Pause"
-            self.menu_options = [
-                ("Resume Game", self._action_resume_game),
-                ("Abandon Game", self._action_abandon_game),
-            ]
-        elif name == "settings_menu":
-            self.menu_title = "Settings"
-            self.menu_options = self._build_settings_menu_options()
-        elif name == "keybind_menu":
-            self.menu_title = "Key Bindings"
-            self.menu_options = self._build_keybinding_menu_options()
-        elif name == "post_game_menu":
-            title = f"{self.winner.name} Wins!" if self.winner else "Game Over"
-            self.menu_title = title
-            self.menu_options = [
-                ("Start New Game", self._action_start_new_game),
-                ("Return to Start Menu", self._action_return_to_start_menu),
-            ]
-        else:
-            self.menu_title = "Tanx"
-            self.menu_options = []
-
-        if self.menu_message is None:
-            if name == "main_menu":
-                self.menu_message = "Use ↑/↓ and Enter to choose."
-            elif name == "pause_menu":
-                self.menu_message = "Game paused."
-            elif name == "settings_menu":
-                self.menu_message = self._settings_instructions
-            elif name == "keybind_menu":
-                self.menu_message = "Select an action to rebind."
-            elif name == "post_game_menu":
-                self.menu_message = self.message
+    def _close_menu(self) -> None:
+        self.menu.state = None
+        self.menu.options = []
+        self.menu.selection = 0
+        self.menu.title = "Tanx"
+        self.menu.message = None
 
     def _action_start_game(self) -> None:
         self._restart_match(start_in_menu=False)
@@ -424,35 +372,36 @@ class PygameTanx:
 
     def _action_settings_back(self) -> None:
         message = None
-        if self.menu_message and self.menu_message != self._settings_instructions:
-            message = self.menu_message
+        current_message = self.menu.message
+        if current_message and current_message != self._settings_instructions:
+            message = current_message
         self._activate_menu("main_menu", message=message)
 
     def _action_open_keybindings(self) -> None:
         self.keybindings.rebinding_target = None
         self._activate_menu("keybind_menu")
-        self.menu_message = self.keybindings.menu_message()
+        self.menu.set_message(self.keybindings.menu_message())
 
     def _action_keybindings_back(self) -> None:
         self.keybindings.rebinding_target = None
         self._activate_menu("settings_menu")
 
     def _action_reset_keybindings(self) -> None:
-        self.menu_message = self.keybindings.reset_to_defaults()
+        self.menu.set_message(self.keybindings.reset_to_defaults())
         self.player_bindings = self.keybindings.player_bindings
         self._update_keybinding_menu_options()
 
     def _select_binding(self, player_idx: int, field: str) -> None:
-        self.menu_message = self.keybindings.start_rebinding(player_idx, field)
+        self.menu.set_message(self.keybindings.start_rebinding(player_idx, field))
         self._update_keybinding_menu_options()
 
     def _finish_binding(self, key: int) -> None:
-        self.menu_message = self.keybindings.finish_rebinding(key)
+        self.menu.set_message(self.keybindings.finish_rebinding(key))
         self.player_bindings = self.keybindings.player_bindings
         self._update_keybinding_menu_options()
 
     def _cancel_binding(self) -> None:
-        self.menu_message = self.keybindings.cancel_rebinding()
+        self.menu.set_message(self.keybindings.cancel_rebinding())
         self._update_keybinding_menu_options()
 
     def _trigger_superpower(self, kind: str) -> bool:
@@ -521,8 +470,7 @@ class PygameTanx:
 
     def _action_resume_game(self) -> None:
         self.state = "playing"
-        self.active_menu = None
-        self.menu_message = None
+        self._close_menu()
 
     def _action_abandon_game(self) -> None:
         self._restart_match(start_in_menu=True, message="Game abandoned.")
@@ -743,7 +691,7 @@ class PygameTanx:
             return
         for tank in self.logic.tanks:
             tank.super_power = 1.0
-        self.menu_message = "Cheat console: Superpower maxed"
+        self.menu.set_message("Cheat console: Superpower maxed")
         self.message = "Cheat console: Superpower maxed"
         self.cheat_menu_visible = False
     def _advance_turn(self) -> None:

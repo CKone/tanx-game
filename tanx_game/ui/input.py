@@ -135,7 +135,7 @@ class InputHandler:
                 app._action_return_to_start_menu()
                 return
 
-        if app.state == "settings_menu" and app.menu_selection == app.settings_resolution_option_index:
+        if app.state == "settings_menu" and app.menu.selection == app.settings_resolution_option_index:
             if key == pygame.K_LEFT:
                 app._change_resolution(-1)
                 return
@@ -148,18 +148,17 @@ class InputHandler:
                 app._finish_binding(key)
                 return
 
-        if not app.menu_options:
+        if not app.menu.options:
             return
 
         if key in {pygame.K_UP, pygame.K_w}:
-            app.menu_selection = (app.menu_selection - 1) % len(app.menu_options)
+            app.menu.change_selection(-1)
             return
         if key in {pygame.K_DOWN, pygame.K_s}:
-            app.menu_selection = (app.menu_selection + 1) % len(app.menu_options)
+            app.menu.change_selection(1)
             return
         if key in {pygame.K_RETURN, pygame.K_SPACE, pygame.K_KP_ENTER}:
-            _, action = app.menu_options[app.menu_selection]
-            action()
+            app.menu.execute_current()
 
 
 __all__ = ["InputHandler", "KeyBindings"]

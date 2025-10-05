@@ -9,7 +9,6 @@ from tanx_game.core import (
     TerrainSettings,
     World,
 )
-from tanx_game.pygame import PygameTanx, run_pygame
 
 __all__ = [
     "Game",
@@ -19,6 +18,19 @@ __all__ = [
     "Tank",
     "TerrainSettings",
     "World",
-    "PygameTanx",
-    "run_pygame",
 ]
+
+try:
+    from tanx_game.pygame import PygameTanx, run_pygame  # type: ignore[misc]
+except (ImportError, RuntimeError):
+    PygameTanx = None
+
+    def run_pygame(*_args, **_kwargs):  # type: ignore[override]
+        raise RuntimeError(
+            "The pygame front-end requires the optional pygame dependency. "
+            "Install pygame to enable graphical gameplay."
+        )
+
+    __all__.extend(["PygameTanx", "run_pygame"])
+else:
+    __all__.extend(["PygameTanx", "run_pygame"])

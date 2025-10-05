@@ -8,8 +8,8 @@ from typing import List, Tuple
 import pygame
 import pygame.gfxdraw
 
-from ...game import Game
-from ...tank import Tank
+from ...core.game import Game
+from ...core.tank import Tank
 from ..effects import Debris, Particle
 
 

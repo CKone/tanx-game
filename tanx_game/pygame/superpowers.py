@@ -9,7 +9,7 @@ from typing import List, Optional
 
 import pygame
 
-from ..game import ShotResult
+from ..core.game import ShotResult
 
 
 class SuperpowerBase:

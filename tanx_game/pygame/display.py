@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple
 
 import pygame
 
-from ..world import TerrainSettings
+from ..core.world import TerrainSettings
 
 
 @dataclass(frozen=True)

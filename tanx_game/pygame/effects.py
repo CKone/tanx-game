@@ -9,8 +9,8 @@ from typing import List, Optional, Tuple
 
 import pygame
 
-from ..game import ShotResult
-from ..tank import Tank
+from ..core.game import ShotResult
+from ..core.tank import Tank
 
 
 @dataclass

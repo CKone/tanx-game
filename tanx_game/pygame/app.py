@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import List, Optional
 
 try:
@@ -13,16 +12,16 @@ except ImportError as exc:  # pragma: no cover - depends on runtime environment
         "The pygame package is required to run the graphical version of Tanx."
     ) from exc
 
-from .game import Game, ShotResult
-from .tank import Tank
-from .world import TerrainSettings
-from .ui.display import DisplayManager
-from .ui.effects import EffectsSystem
-from .ui.input import InputHandler
-from .ui.superpowers import SuperpowerManager
-from .ui.keybindings import KeybindingManager, KeyBindings
-from .ui.menu_controller import MenuController, MenuDefinition, MenuOption
-from .ui.renderer.scene import (
+from ..core.game import Game, ShotResult
+from ..core.session import GameSession, ProjectileStep
+from ..core.tank import Tank
+from ..core.world import TerrainSettings
+from .display import DisplayManager
+from .effects import EffectsSystem
+from .input import InputHandler
+from .keybindings import KeybindingManager, KeyBindings
+from .menu_controller import MenuController, MenuDefinition, MenuOption
+from .renderer import (
     draw_background,
     draw_debris,
     draw_explosions,
@@ -32,7 +31,8 @@ from .ui.renderer.scene import (
     draw_tanks,
     draw_world,
 )
-from .ui.menus import draw_menu_overlay, draw_ui
+from .menus import draw_menu_overlay, draw_ui
+from .superpowers import SuperpowerManager
 
 
 class PygameTanx:
@@ -84,14 +84,7 @@ class PygameTanx:
             "Use ←/→ to adjust the resolution, Enter toggles fullscreen."
         )
 
-        self.projectile_result: Optional[ShotResult] = None
-        self.projectile_index = 0
-        self.projectile_timer = 0.0
-        self.projectile_position: Optional[tuple[float, float]] = None
-        self.active_shooter: Optional[Tank] = None
         self.cheat_menu_visible = False
-        self.winner: Optional[Tank] = None
-        self.winner_delay = 0.0
 
         self.settings_resolution_option_index = 0
         self.settings_keybind_option_index = 1
@@ -100,7 +93,6 @@ class PygameTanx:
         self.keybindings = KeybindingManager()
         self.player_bindings = self.keybindings.player_bindings
         self.superpowers = SuperpowerManager(self)
-        self.superpower_active_player: Optional[int] = None
 
         self.sky_color_top = pygame.Color(78, 149, 205)
         self.sky_color_bottom = pygame.Color(19, 57, 84)
@@ -160,6 +152,26 @@ class PygameTanx:
         except AttributeError:
             return 0
 
+    @property
+    def message(self) -> str:
+        return self.session.message
+
+    @message.setter
+    def message(self, value: str) -> None:
+        self.session.message = value
+
+    @property
+    def current_player(self) -> int:
+        return self.session.current_player
+
+    @property
+    def winner(self) -> Optional[Tank]:
+        return self.session.winner
+
+    @property
+    def winner_delay(self) -> float:
+        return self.session.winner_delay
+
     def _setup_new_match(
         self,
         player_one: str,
@@ -180,17 +192,9 @@ class PygameTanx:
         self.effects.ui_height = self.ui_height
         self.effects.reset()
 
-        self.current_player = 0
-        self.message = f"{self.logic.tanks[0].name}'s turn"
-
-        self.projectile_result = None
-        self.projectile_index = 0
-        self.projectile_timer = 0.0
-        self.projectile_position = None
-        self.active_shooter = None
-
-        self.winner = None
-        self.winner_delay = 0.0
+        self.session = GameSession(
+            self.logic, projectile_interval=self.projectile_interval
+        )
         self.cheat_menu_visible = False
 
         if not self.display.windowed_fullscreen:
@@ -405,16 +409,16 @@ class PygameTanx:
         self._update_keybinding_menu_options()
 
     def _trigger_superpower(self, kind: str) -> bool:
-        if self.superpowers.is_active() or self._is_animating_projectile():
+        if self.superpowers.is_active() or self.session.is_animating_projectile():
             return False
-        tank = self.logic.tanks[self.current_player]
+        tank = self.session.current_tank
         if tank.super_power < 1.0:
             self.message = f"{tank.name}'s superpower is not ready"
             return False
         if not self.superpowers.activate(kind, self.current_player):
             return False
         tank.reset_super_power()
-        self.superpower_active_player = self.current_player
+        self.session.superpower_active_player = self.current_player
         if kind == "bomber":
             self.message = f"{tank.name} calls in a bomber strike!"
         else:
@@ -437,30 +441,6 @@ class PygameTanx:
         self.effects.spawn_explosion((x_world, y_world), explosion_scale)
         if result.fatal_hit:
             self.effects.spawn_fatal_debris(result, self.logic.tanks, self.tank_colors)
-
-    def _update_super_power(self, shooter: Tank, result: Optional[ShotResult]) -> None:
-        base_gain = 0.08
-        bonus = 0.0
-
-        opponents = [tank for tank in self.logic.tanks if tank is not shooter and tank.alive]
-
-        if result and result.hit_tank and result.hit_tank is not shooter:
-            bonus = 0.75
-        elif result and result.impact_x is not None and opponents:
-            distances = [
-                math.hypot(tank.x - result.impact_x, tank.y - (result.impact_y or tank.y))
-                for tank in opponents
-            ]
-            min_dist = min(distances)
-            if min_dist <= 0.5:
-                bonus = 0.6
-            else:
-                falloff = max(0.0, (6.0 - min_dist) / 6.0)
-                bonus = 0.45 * (falloff ** 2)
-        else:
-            bonus = 0.0
-
-        shooter.add_super_power(base_gain + bonus)
 
     def _action_enter_windowed_fullscreen(self) -> None:
         self._enter_windowed_fullscreen()
@@ -506,41 +486,48 @@ class PygameTanx:
     def _update(self, dt: float) -> None:
         self.effects.update(dt, self.logic.world)
         power_finished = self.superpowers.update(dt)
-        if power_finished and self.superpower_active_player is not None:
-            self.superpower_active_player = None
-            self._advance_turn()
-            self._check_victory()
-            if not self.winner:
-                self.message = f"Next: {self.logic.tanks[self.current_player].name}'s turn"
+        if power_finished and self.session.superpower_active_player is not None:
+            self.session.complete_superpower()
 
         if self.superpowers.is_active():
             return
-        if self.winner and self.winner_delay > 0:
-            self.winner_delay = max(0.0, self.winner_delay - dt)
+
+        self.session.tick_winner_delay(dt)
 
         if self.state != "playing":
             return
 
-        if self.winner and self.winner_delay <= 0 and not self._is_animating_projectile():
+        if (
+            self.winner
+            and self.winner_delay <= 0
+            and not self.session.is_animating_projectile()
+        ):
             self._activate_menu("post_game_menu", message=self.message)
             return
 
-        if not self._is_animating_projectile():
+        if not self.session.is_animating_projectile():
             return
-        self.projectile_timer += dt
-        while self.projectile_timer >= self.projectile_interval:
-            self.projectile_timer -= self.projectile_interval
-            assert self.projectile_result is not None
-            path = self.projectile_result.path
-            self.projectile_index += 1
-            if self.projectile_index >= len(path):
-                result = self.projectile_result
-                self.projectile_position = None
-                self.projectile_result = None
-                self._finish_projectile(result)
-                break
-            self.projectile_position = path[self.projectile_index]
-            self.effects.spawn_trail(self.projectile_position)
+
+        step = self.session.update_projectile(dt)
+        for position in step.trail_positions:
+            self.effects.spawn_trail(position)
+        if step.finished:
+            self._handle_projectile_resolution(step.result)
+
+    def _handle_projectile_resolution(self, result: Optional[ShotResult]) -> None:
+        resolved = self.session.resolve_projectile(result)
+        if resolved:
+            self.effects.spawn_impact_particles(resolved)
+        if resolved and resolved.impact_x is not None and resolved.impact_y is not None:
+            scale = 1.0
+            if resolved.fatal_hit:
+                scale = 1.8
+                self.effects.spawn_fatal_debris(
+                    resolved, self.logic.tanks, self.tank_colors
+                )
+            elif resolved.hit_tank is not None:
+                scale = 1.15
+            self.effects.spawn_explosion((resolved.impact_x, resolved.impact_y), scale)
 
     def _draw(self) -> None:
         target_surface = self.screen
@@ -551,8 +538,8 @@ class PygameTanx:
         draw_trails(self)
         draw_particles(self)
         draw_debris(self)
-        if self.projectile_position:
-            draw_projectile(self, self.projectile_position)
+        if self.session.projectile_position:
+            draw_projectile(self, self.session.projectile_position)
         draw_explosions(self)
         self.superpowers.draw(self.screen)
         if self.state in {"playing", "pause_menu"}:
@@ -574,64 +561,13 @@ class PygameTanx:
     # ------------------------------------------------------------------
     # Actions
     def _attempt_move(self, tank: Tank, direction: int) -> None:
-        if tank.move(self.logic.world, direction):
-            direction_text = "left" if direction < 0 else "right"
-            self._advance_turn()
-            self.message = (
-                f"{tank.name} moved {direction_text}. "
-                f"Next: {self.logic.tanks[self.current_player].name}'s turn"
-            )
-        else:
-            self.message = f"{tank.name} cannot move that way"
+        _ = tank  # maintained for signature compatibility
+        self.session.attempt_move(direction)
 
     def _fire_projectile(self, tank: Tank) -> None:
-        tank.last_command = "fire"
-        result = self.logic.step_projectile(tank, apply_effects=False)
-        self.projectile_result = result
-        self.projectile_index = 0
-        self.projectile_timer = 0.0
+        result = self.session.begin_projectile(tank)
         if result.path:
-            self.projectile_position = result.path[0]
-            self.effects.spawn_trail(self.projectile_position)
-        else:
-            self.projectile_position = None
-        self.message = f"{tank.name} fires!"
-        self.active_shooter = tank
-
-    def _finish_projectile(self, result: Optional[ShotResult]) -> None:
-        if result:
-            self.logic.apply_shot_effects(result)
-            self.effects.spawn_impact_particles(result)
-        if result and result.hit_tank:
-            self.message = f"Direct hit on {result.hit_tank.name}!"
-        elif result and result.impact_x is not None:
-            self.message = "Shot impacted the terrain."
-        else:
-            self.message = "Shot flew off into the distance."
-
-        if result and result.impact_x is not None and result.impact_y is not None:
-            scale = 1.0
-            if result.fatal_hit:
-                scale = 1.8
-                self.effects.spawn_fatal_debris(result, self.logic.tanks, self.tank_colors)
-            elif result.hit_tank is not None:
-                scale = 1.15
-            self.effects.spawn_explosion((result.impact_x, result.impact_y), scale)
-
-        self.active_shooter = None
-
-        shooter = self.logic.tanks[self.current_player]
-        self._update_super_power(shooter, result)
-
-        self._advance_turn()
-        self._check_victory()
-        if self.winner:
-            if result and result.fatal_hit:
-                self.winner_delay = 2.0
-            else:
-                self.winner_delay = 0.0
-        if not self.winner:
-            self.message += f" Next: {self.logic.tanks[self.current_player].name}'s turn"
+            self.effects.spawn_trail(result.path[0])
 
     def _cheat_explode(self, tank_index: int) -> None:
         if not self.cheat_enabled:
@@ -669,21 +605,23 @@ class PygameTanx:
         self.effects.spawn_explosion((result.impact_x, result.impact_y), scale)
         if result.fatal_hit:
             self.effects.spawn_fatal_debris(result, self.logic.tanks, self.tank_colors)
-        self.projectile_result = None
-        self.projectile_position = None
+        self.session.projectile_result = None
+        self.session.projectile_position = None
+        self.session.active_shooter = None
+        self.session.superpower_active_player = None
         self.cheat_menu_visible = False
         for player in self.logic.tanks:
             player.super_power = 1.0
-        self._check_victory()
+        self.session.check_victory()
         if self.winner:
             loser = result.fatal_tank or tank
             if result.fatal_hit:
-                self.winner_delay = 2.0
+                self.session.winner_delay = 2.0
             else:
-                self.winner_delay = 0.0
+                self.session.winner_delay = 0.0
             self.message = f"Cheat console: {loser.name} obliterated"
         else:
-            self.winner_delay = 0.0
+            self.session.winner_delay = 0.0
             self.message = f"Cheat console: {tank.name} detonated"
 
     def _cheat_fill_super_power(self) -> None:
@@ -694,22 +632,6 @@ class PygameTanx:
         self.menu.set_message("Cheat console: Superpower maxed")
         self.message = "Cheat console: Superpower maxed"
         self.cheat_menu_visible = False
-    def _advance_turn(self) -> None:
-        self.current_player = 1 - self.current_player
-
-    def _check_victory(self) -> None:
-        alive = [tank for tank in self.logic.tanks if tank.alive]
-        if len(alive) == 1:
-            self.winner = alive[0]
-            loser = next(t for t in self.logic.tanks if t is not self.winner)
-            self.message = f"{self.winner.name} wins! {loser.name} is destroyed."
-        elif len(alive) == 0:
-            self.winner = None
-            self.message = "Both tanks destroyed!"
-
-    def _is_animating_projectile(self) -> bool:
-        return self.projectile_result is not None
-
 
 def run_pygame(**kwargs: object) -> None:
     """Convenience helper for launching the pygame client."""

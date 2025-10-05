@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pygame
 
-from ..tank import Tank
+from ..core.tank import Tank
 from .keybindings import KeyBindings
 
 
@@ -31,7 +31,7 @@ class InputHandler:
             return
 
         if app.cheat_enabled and key == pygame.K_F1:
-            if app._is_animating_projectile() or app.winner:
+            if app.session.is_animating_projectile() or app.winner:
                 return
             app.cheat_menu_visible = not app.cheat_menu_visible
             app.message = (
@@ -55,14 +55,14 @@ class InputHandler:
                 return
             return
 
-        current_tank = app.logic.tanks[app.current_player]
+        current_tank = app.session.current_tank
         if current_tank.super_power >= 1.0:
             if key == pygame.K_b and app._trigger_superpower("bomber"):
                 return
             if key == pygame.K_n and app._trigger_superpower("squad"):
                 return
 
-        if app._is_animating_projectile():
+        if app.session.is_animating_projectile():
             if key == pygame.K_ESCAPE:
                 app._activate_menu("pause_menu")
             return

@@ -2,6 +2,7 @@
 
 from tanx_game.pygame.renderer.scene import (
     draw_background,
+    draw_aim_indicator,
     draw_debris,
     draw_explosions,
     draw_particles,
@@ -13,6 +14,7 @@ from tanx_game.pygame.renderer.scene import (
 
 __all__ = [
     "draw_background",
+    "draw_aim_indicator",
     "draw_debris",
     "draw_explosions",
     "draw_particles",

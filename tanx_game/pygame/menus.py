@@ -202,7 +202,7 @@ def draw_ui(app) -> None:
         super_ratio = clamp(tank.super_power)
         super_ready = super_ratio >= 1.0 - 1e-3
         super_color = pygame.Color(240, 200, 90) if super_ready else pygame.Color(200, 120, 230)
-        super_value = "Ready" if super_ready else f"{int(super_ratio * 100):02d}%"
+        super_value = "Ready (B/N/M)" if super_ready else f"{int(super_ratio * 100):02d}%"
         draw_progress_bar(
             bar_rects[2],
             super_ratio,
@@ -221,7 +221,9 @@ def draw_ui(app) -> None:
 
     instruction_parts = [
         "P1: A/D move, W/S aim, Space fire, Q/E power",
-        "P2: ←/→ move, ↑/↓ aim, Enter fire, [/ ] power",
+        "P2: ←/→ move, ↑/↓ aim, Enter fire, [,/.] power",
+        "Superpowers: B bomber, N squad, M scope",
+        "Hold Shift: coarse aim & power",
         "Esc: pause menu",
     ]
     if app.cheat_enabled:

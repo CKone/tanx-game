@@ -48,8 +48,8 @@ class KeybindingManager:
                 turret_up=pygame.K_UP,
                 turret_down=pygame.K_DOWN,
                 fire=pygame.K_RETURN,
-                power_decrease=pygame.K_LEFTBRACKET,
-                power_increase=pygame.K_RIGHTBRACKET,
+                power_decrease=pygame.K_COMMA,
+                power_increase=pygame.K_PERIOD,
             ),
         ]
         self.player_bindings: List[KeyBindings] = [

@@ -23,6 +23,7 @@ from tanx_game.pygame.keybindings import KeybindingManager, KeyBindings
 from tanx_game.pygame.menu_controller import MenuController, MenuDefinition, MenuOption
 from tanx_game.pygame.renderer import (
     draw_background,
+    draw_aim_indicator,
     draw_debris,
     draw_explosions,
     draw_particles,
@@ -105,10 +106,14 @@ class PygameTanx:
 
         self._setup_new_match(player_one, player_two, terrain_settings, seed)
 
+        if not self.display.windowed_fullscreen:
+            self._enter_windowed_fullscreen()
+
         if self.state == "main_menu":
             self._activate_menu("main_menu")
 
-        self._last_regular_settings = TerrainSettings(**vars(self.logic.world.settings))
+        if not self.display.windowed_fullscreen:
+            self._last_regular_settings = TerrainSettings(**vars(self.logic.world.settings))
 
     @property
     def cell_size(self) -> int:
@@ -421,11 +426,16 @@ class PygameTanx:
         if not self.superpowers.activate(kind, self.current_player):
             return False
         tank.reset_super_power()
-        self.session.superpower_active_player = self.current_player
+        if kind in {"bomber", "squad"}:
+            self.session.superpower_active_player = self.current_player
+        else:
+            self.session.superpower_active_player = None
         if kind == "bomber":
             self.message = f"{tank.name} calls in a bomber strike!"
-        else:
+        elif kind == "squad":
             self.message = f"{tank.name} deploys an assault squad!"
+        else:
+            self.message = f"{tank.name} engages the targeting computer!"
         return True
 
     def _apply_superpower_damage(
@@ -538,6 +548,7 @@ class PygameTanx:
         draw_background(self)
         draw_world(self)
         draw_tanks(self)
+        draw_aim_indicator(self)
         draw_trails(self)
         draw_particles(self)
         draw_debris(self)
@@ -571,6 +582,7 @@ class PygameTanx:
         result = self.session.begin_projectile(tank)
         if result.path:
             self.effects.spawn_trail(result.path[0])
+        self.superpowers.consume_trajectory_preview(self.current_player)
 
     def _cheat_explode(self, tank_index: int) -> None:
         if not self.cheat_enabled:

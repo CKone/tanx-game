@@ -18,12 +18,17 @@ class InputHandler:
     # Event entry point
     def process_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
-            self._handle_key(event.key)
+            self._handle_key(event)
 
     # ------------------------------------------------------------------
     # Internal helpers
-    def _handle_key(self, key: int) -> None:
+    def _handle_key(self, event: pygame.event.Event) -> None:
         app = self.app
+        key = event.key
+        mods = getattr(event, "mod", 0)
+        shift_pressed = bool(mods & pygame.KMOD_SHIFT)
+        turret_step = 5 if shift_pressed else 1
+        power_step = 0.1 if shift_pressed else 0.02
         if app.superpowers.is_active():
             return
         if app.state in {"main_menu", "pause_menu", "post_game_menu", "settings_menu", "keybind_menu"}:
@@ -61,6 +66,8 @@ class InputHandler:
                 return
             if key == pygame.K_n and app._trigger_superpower("squad"):
                 return
+            if key == pygame.K_m and app._trigger_superpower("trajectory"):
+                return
 
         if app.session.is_animating_projectile():
             if key == pygame.K_ESCAPE:
@@ -86,16 +93,16 @@ class InputHandler:
             app._attempt_move(tank, 1)
             return
         if key == bindings.turret_up:
-            tank.raise_turret()
+            tank.raise_turret(amount=turret_step)
             app.message = f"{tank.name} turret: {tank.turret_angle}°"
             return
         if key == bindings.turret_down:
-            tank.lower_turret()
+            tank.lower_turret(amount=turret_step)
             app.message = f"{tank.name} turret: {tank.turret_angle}°"
             return
         if key == bindings.power_increase:
             previous = tank.shot_power
-            tank.increase_power()
+            tank.increase_power(amount=power_step)
             if tank.shot_power == previous:
                 app.message = f"{tank.name} power already max"
             else:
@@ -103,7 +110,7 @@ class InputHandler:
             return
         if key == bindings.power_decrease:
             previous = tank.shot_power
-            tank.decrease_power()
+            tank.decrease_power(amount=power_step)
             if tank.shot_power == previous:
                 app.message = f"{tank.name} power already min"
             else:

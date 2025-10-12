@@ -13,12 +13,22 @@ class InputHandler:
 
     def __init__(self, app) -> None:
         self.app = app
+        self._held_keys: set[int] = set()
+        self._angle_remainder: float = 0.0
+        self._power_remainder: float = 0.0
 
     # ------------------------------------------------------------------
     # Event entry point
     def process_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
+            self._held_keys.add(event.key)
             self._handle_key(event)
+        elif event.type == pygame.KEYUP:
+            if event.key in self._held_keys:
+                self._held_keys.discard(event.key)
+            if event.key in {pygame.K_LSHIFT, pygame.K_RSHIFT}:
+                self._angle_remainder = 0.0
+                self._power_remainder = 0.0
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -119,6 +129,64 @@ class InputHandler:
         if key == bindings.fire:
             app._fire_projectile(tank)
             return
+
+    def update(self, dt: float) -> None:
+        app = self.app
+        if app.state not in {"playing"}:
+            return
+        if app.superpowers.is_active():
+            return
+        if app.cheat_menu_visible or app.session.is_animating_projectile() or app.winner:
+            return
+        if app.keybindings.rebinding_target is not None:
+            return
+
+        current_tank = app.session.current_tank
+        bindings = app.player_bindings[app.current_player]
+
+        mods = pygame.key.get_mods()
+        shift_pressed = bool(mods & pygame.KMOD_SHIFT)
+
+        angle_rate = 40.0 if not shift_pressed else 100.0
+        power_rate = 0.3 if not shift_pressed else 0.9
+
+        angle_direction = 0
+        if bindings.turret_up in self._held_keys:
+            angle_direction += 1
+        if bindings.turret_down in self._held_keys:
+            angle_direction -= 1
+
+        if angle_direction == 0:
+            self._angle_remainder = 0.0
+        else:
+            self._angle_remainder += angle_direction * angle_rate * dt
+            step = int(self._angle_remainder)
+            if step != 0:
+                if step > 0:
+                    current_tank.raise_turret(step)
+                else:
+                    current_tank.lower_turret(-step)
+                self._angle_remainder -= step
+                app.message = f"{current_tank.name} turret: {current_tank.turret_angle}°"
+
+        power_direction = 0
+        if bindings.power_increase in self._held_keys:
+            power_direction += 1
+        if bindings.power_decrease in self._held_keys:
+            power_direction -= 1
+
+        if power_direction == 0:
+            self._power_remainder = 0.0
+        else:
+            delta = power_direction * power_rate * dt
+            self._power_remainder += delta
+            step = self._power_remainder
+            if step > 0:
+                current_tank.increase_power(amount=step)
+            else:
+                current_tank.decrease_power(amount=-step)
+            self._power_remainder = 0.0
+            app.message = f"{current_tank.name} power: {current_tank.shot_power:.2f}x"
 
     def _handle_menu_key(self, key: int) -> None:
         app = self.app

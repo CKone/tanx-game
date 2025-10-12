@@ -536,6 +536,8 @@ class PygameTanx:
         if self.state != "playing":
             return
 
+        self.input.update(dt)
+
         if (
             self.winner
             and self.winner_delay <= 0

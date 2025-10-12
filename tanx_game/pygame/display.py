@@ -38,8 +38,14 @@ class DisplayManager:
         self.windowed_fullscreen = False
         self.windowed_fullscreen_size: Optional[Tuple[int, int]] = None
 
-        self._display_flags = 0
-        self.display_surface = pygame.display.set_mode((640, 480), self._display_flags)
+        info = pygame.display.Info()
+        initial_size = (
+            info.current_w or 640,
+            info.current_h or 480,
+        )
+        self._display_flags = pygame.FULLSCREEN
+        self.display_surface = pygame.display.set_mode(initial_size, self._display_flags)
+        self.fullscreen_size = self.display_surface.get_size()
         pygame.display.set_caption(self.caption)
 
         self.render_surface: Optional[pygame.Surface] = None
@@ -61,6 +67,9 @@ class DisplayManager:
         height = self.world_height * self.cell_size + self.ui_height
         if self.windowed_fullscreen and self.windowed_fullscreen_size:
             self._set_display_mode(self.windowed_fullscreen_size, pygame.NOFRAME)
+        elif self._display_flags & pygame.FULLSCREEN:
+            self.fullscreen_size = self.display_surface.get_size()
+            self._set_display_mode(self.fullscreen_size, pygame.FULLSCREEN)
         else:
             self._set_display_mode((width, height))
         self._update_render_target()
@@ -74,6 +83,15 @@ class DisplayManager:
 
     def _update_render_target(self) -> None:
         if self.windowed_fullscreen:
+            width = self.world_width * self.cell_size
+            height = self.world_height * self.cell_size + self.ui_height
+            desired = (width, height)
+            if self.render_surface is None or self.render_surface.get_size() != desired:
+                surface = pygame.Surface(desired).convert_alpha()
+                surface.fill((0, 0, 0))
+                self.render_surface = surface
+            self._screen = self.render_surface
+        elif self._display_flags & pygame.FULLSCREEN:
             width = self.world_width * self.cell_size
             height = self.world_height * self.cell_size + self.ui_height
             desired = (width, height)

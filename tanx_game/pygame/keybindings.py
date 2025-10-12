@@ -48,14 +48,46 @@ class KeybindingManager:
                 turret_up=pygame.K_UP,
                 turret_down=pygame.K_DOWN,
                 fire=pygame.K_RETURN,
-                power_decrease=pygame.K_LEFTBRACKET,
-                power_increase=pygame.K_RIGHTBRACKET,
+                power_decrease=pygame.K_COMMA,
+                power_increase=pygame.K_PERIOD,
             ),
         ]
         self.player_bindings: List[KeyBindings] = [
             KeyBindings(**vars(binding)) for binding in self.default_bindings
         ]
         self.rebinding_target: Optional[tuple[int, str]] = None
+
+    # ------------------------------------------------------------------
+    def to_config(self) -> List[dict[str, int]]:
+        """Return a serialisable snapshot of the current bindings."""
+        result: List[dict[str, int]] = []
+        for binding in self.player_bindings:
+            entry = {field: int(getattr(binding, field)) for _, field in self.binding_fields}
+            result.append(entry)
+        return result
+
+    def load_from_config(self, data: List[dict]) -> None:
+        """Restore bindings from a persisted configuration."""
+        if not isinstance(data, list):
+            return
+        restored: List[KeyBindings] = []
+        for idx, entry in enumerate(data):
+            if not isinstance(entry, dict):
+                continue
+            template = self.default_bindings[idx % len(self.default_bindings)]
+            values = {}
+            for _, field in self.binding_fields:
+                raw = entry.get(field, getattr(template, field))
+                try:
+                    values[field] = int(raw)
+                except (TypeError, ValueError):
+                    values[field] = getattr(template, field)
+            restored.append(KeyBindings(**values))
+        if restored:
+            # Ensure we maintain exactly two players worth of bindings.
+            while len(restored) < len(self.default_bindings):
+                restored.append(KeyBindings(**vars(self.default_bindings[len(restored)])))
+            self.player_bindings = restored[: len(self.default_bindings)]
 
     # ------------------------------------------------------------------
     def format_key(self, key: int) -> str:

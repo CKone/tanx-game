@@ -456,6 +456,7 @@ class SuperpowerManager:
     def __init__(self, app) -> None:
         self.app = app
         self.active: Optional[SuperpowerBase] = None
+        self.preview_ready = [False, False]
 
     def activate(self, kind: str, player_index: int) -> bool:
         if self.active is not None:
@@ -464,6 +465,13 @@ class SuperpowerManager:
             self.active = BomberPower(self.app, player_index)
         elif kind == "squad":
             self.active = SquadPower(self.app, player_index)
+        elif kind == "trajectory":
+            if not 0 <= player_index < len(self.preview_ready):
+                return False
+            if self.preview_ready[player_index]:
+                return False
+            self.preview_ready[player_index] = True
+            return True
         else:
             return False
         return True
@@ -483,6 +491,15 @@ class SuperpowerManager:
 
     def is_active(self) -> bool:
         return self.active is not None
+
+    def has_trajectory_preview(self, player_index: int) -> bool:
+        return 0 <= player_index < len(self.preview_ready) and self.preview_ready[player_index]
+
+    def consume_trajectory_preview(self, player_index: int) -> bool:
+        if 0 <= player_index < len(self.preview_ready) and self.preview_ready[player_index]:
+            self.preview_ready[player_index] = False
+            return True
+        return False
 
 
 def draw_squad(

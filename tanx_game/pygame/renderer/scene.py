@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import pygame
 import pygame.gfxdraw
@@ -29,6 +29,109 @@ def _blend_color(color: pygame.Color, other: pygame.Color, ratio: float) -> pyga
         int(color.g * inv + other.g * clamped),
         int(color.b * inv + other.b * clamped),
     )
+
+
+def _projectile_preview(
+    game: Game,
+    tank: Tank,
+    *,
+    full: bool = False,
+    max_distance: float = 6.5,
+    max_points: int = 36,
+) -> tuple[list[tuple[float, float]], Optional[tuple[float, float]]]:
+    result = game.step_projectile(tank, apply_effects=False)
+    path = list(result.path)
+    if not path:
+        return [], None
+
+    impact = None
+    if result.impact_x is not None and result.impact_y is not None:
+        impact = (result.impact_x, result.impact_y)
+
+    if full:
+        return path, impact
+
+    trimmed: list[tuple[float, float]] = []
+    travelled = 0.0
+    prev_x = tank.x + 0.5 + tank.facing * 0.6
+    prev_y = tank.y - 0.5
+    for point in path:
+        trimmed.append(point)
+        travelled += math.hypot(point[0] - prev_x, point[1] - prev_y)
+        prev_x, prev_y = point
+        if len(trimmed) >= max_points or travelled >= max_distance:
+            break
+    return trimmed, impact
+
+
+def draw_aim_indicator(app) -> None:
+    if app.state != "playing":
+        return
+    if app.superpowers.is_active():
+        return
+    if app.session.is_animating_projectile():
+        return
+
+    current_tank = app.session.current_tank
+    if not current_tank.alive:
+        return
+
+    full_preview = app.superpowers.has_trajectory_preview(app.current_player)
+    preview, impact = _projectile_preview(
+        app.logic,
+        current_tank,
+        full=full_preview,
+        max_distance=8.0,
+        max_points=48,
+    )
+    if not preview:
+        return
+
+    surface = app.screen
+    cell = app.cell_size
+    offset_x = app.playfield_offset_x
+    offset_y = app.ui_height
+
+    max_dots = 26 if full_preview else 14
+    dot_count = min(max_dots, len(preview))
+    if dot_count <= 0:
+        return
+
+    indices: list[int] = []
+    last_index = -1
+    for i in range(dot_count):
+        t = i / max(dot_count - 1, 1)
+        idx = min(int(round(t * (len(preview) - 1))), len(preview) - 1)
+        if idx == last_index:
+            idx = min(idx + 1, len(preview) - 1)
+        indices.append(idx)
+        last_index = idx
+
+    base_color = app.tank_colors[app.session.current_player % len(app.tank_colors)]
+    highlight_color = _blend_color(base_color, pygame.Color("white"), 0.35)
+
+    base_radius = max(2, int(cell * 0.22))
+    min_radius = max(1, int(cell * 0.08))
+
+    for idx, preview_index in enumerate(indices):
+        px, py = preview[preview_index]
+        screen_x = int(round(offset_x + px * cell))
+        screen_y = int(round(offset_y + py * cell))
+        t = idx / max(dot_count - 1, 1)
+        radius = max(min_radius, int(round(base_radius * (1.0 - 0.55 * t))))
+        color_mix = _blend_color(base_color, highlight_color, 0.5 * (1.0 - t))
+        pygame.draw.circle(surface, color_mix, (screen_x, screen_y), radius)
+        if full_preview and idx == len(indices) - 1:
+            ring_radius = max(radius + 2, radius * 2)
+            pygame.draw.circle(surface, pygame.Color(250, 242, 180), (screen_x, screen_y), ring_radius, 2)
+
+    if full_preview and impact is not None:
+        ix, iy = impact
+        screen_x = int(round(offset_x + ix * cell))
+        screen_y = int(round(offset_y + iy * cell))
+        marker_radius = max(4, int(cell * 0.18))
+        pygame.draw.circle(surface, pygame.Color(255, 210, 120), (screen_x, screen_y), marker_radius)
+        pygame.draw.circle(surface, pygame.Color(60, 40, 20), (screen_x, screen_y), marker_radius, 2)
 
 
 def draw_background(app) -> None:
@@ -157,17 +260,20 @@ def draw_tanks(app) -> None:
         turret_shadow = _scale_color(base_color, 0.8)
 
         x = offset_x + tank.x * cell
-        y = tank.y * cell + offset_y
+        ground = app.logic.world.ground_height(tank.x + 0.5)
+        if ground is None:
+            ground = tank.y + 1
+        base_y = offset_y + ground * cell
         facing = tank.facing
 
         # Tracks -----------------------------------------------------------------
         track_margin = cell * 0.06
-        track_rect = pygame.Rect(
-            int(x - track_margin),
-            int(y + cell - track_height),
-            int(cell + track_margin * 2),
-            int(track_height),
-        )
+        track_height_px = max(2, int(round(track_height)))
+        track_width_px = max(2, int(round(cell + track_margin * 2)))
+        track_left = int(round(x - track_margin))
+        track_bottom = int(round(base_y))
+        track_top = track_bottom - track_height_px
+        track_rect = pygame.Rect(track_left, track_top, track_width_px, track_height_px)
         pygame.draw.rect(surface, track_color, track_rect, border_radius=int(track_height * 0.35))
 
         wheel_radius = cell * 0.14
@@ -179,12 +285,11 @@ def draw_tanks(app) -> None:
             pygame.draw.circle(surface, dark_grey, (int(wheel_x), int(wheel_y)), int(wheel_radius * 0.55))
 
         # Hull --------------------------------------------------------------------
-        hull_rect = pygame.Rect(
-            int(x - cell * 0.05),
-            int(y + cell - track_height - hull_height),
-            int(cell * 1.1),
-            int(hull_height),
-        )
+        hull_height_px = max(4, int(round(hull_height)))
+        hull_width_px = max(4, int(round(cell * 1.1)))
+        hull_left = int(round(x - cell * 0.05))
+        hull_top = track_rect.top - hull_height_px
+        hull_rect = pygame.Rect(hull_left, hull_top, hull_width_px, hull_height_px)
         pygame.draw.rect(surface, hull_color, hull_rect, border_radius=int(cell * 0.18))
 
         # Hull shading strip

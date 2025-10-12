@@ -16,6 +16,7 @@ from tanx_game.core.game import Game, ShotResult
 from tanx_game.core.session import GameSession, ProjectileStep
 from tanx_game.core.tank import Tank
 from tanx_game.core.world import TerrainSettings
+from tanx_game.pygame.config import load_user_settings, save_user_settings
 from tanx_game.pygame.display import DisplayManager
 from tanx_game.pygame.effects import EffectsSystem
 from tanx_game.pygame.input import InputHandler
@@ -56,6 +57,11 @@ class PygameTanx:
         self.cheat_enabled = cheat_enabled
         self._ui_height = ui_height
 
+        self._user_settings = load_user_settings()
+        stored_cell_size = self._user_settings.get("cell_size")
+        if isinstance(stored_cell_size, int) and stored_cell_size >= 4:
+            cell_size = stored_cell_size
+
         self.display = DisplayManager(
             cell_size=cell_size,
             ui_height=ui_height,
@@ -95,6 +101,11 @@ class PygameTanx:
         self.player_bindings = self.keybindings.player_bindings
         self.superpowers = SuperpowerManager(self)
 
+        stored_keybindings = self._user_settings.get("keybindings")
+        if isinstance(stored_keybindings, list):
+            self.keybindings.load_from_config(stored_keybindings)
+            self.player_bindings = self.keybindings.player_bindings
+
         self.sky_color_top = pygame.Color(78, 149, 205)
         self.sky_color_bottom = pygame.Color(19, 57, 84)
         self.ground_color = pygame.Color(87, 59, 32)
@@ -106,7 +117,7 @@ class PygameTanx:
 
         self._setup_new_match(player_one, player_two, terrain_settings, seed)
 
-        if not self.display.windowed_fullscreen:
+        if self._user_settings.get("windowed_fullscreen") and not self.display.windowed_fullscreen:
             self._enter_windowed_fullscreen()
 
         if self.state == "main_menu":
@@ -114,6 +125,8 @@ class PygameTanx:
 
         if not self.display.windowed_fullscreen:
             self._last_regular_settings = TerrainSettings(**vars(self.logic.world.settings))
+
+        self._save_user_settings()
 
     @property
     def cell_size(self) -> int:
@@ -176,6 +189,15 @@ class PygameTanx:
     @property
     def winner_delay(self) -> float:
         return self.session.winner_delay
+
+    def _save_user_settings(self) -> None:
+        data = {
+            "cell_size": int(self.display.cell_size),
+            "windowed_fullscreen": bool(self.display.windowed_fullscreen),
+            "keybindings": self.keybindings.to_config(),
+        }
+        save_user_settings(data)
+        self._user_settings = data
 
     def _setup_new_match(
         self,
@@ -305,6 +327,7 @@ class PygameTanx:
         if self.state == "settings_menu" and message:
             self.menu.set_message(message)
             self._update_settings_menu_options()
+        self._save_user_settings()
 
     def _apply_resolution(self, cell_size: int) -> None:
         if not self.display.apply_resolution(cell_size):
@@ -318,6 +341,7 @@ class PygameTanx:
         )
         if self.state == "settings_menu":
             self._update_settings_menu_options()
+        self._save_user_settings()
 
     def _change_resolution(self, direction: int) -> None:
         preset = self.display.change_resolution(direction)
@@ -402,6 +426,7 @@ class PygameTanx:
         self.menu.set_message(self.keybindings.reset_to_defaults())
         self.player_bindings = self.keybindings.player_bindings
         self._update_keybinding_menu_options()
+        self._save_user_settings()
 
     def _select_binding(self, player_idx: int, field: str) -> None:
         self.menu.set_message(self.keybindings.start_rebinding(player_idx, field))
@@ -411,6 +436,7 @@ class PygameTanx:
         self.menu.set_message(self.keybindings.finish_rebinding(key))
         self.player_bindings = self.keybindings.player_bindings
         self._update_keybinding_menu_options()
+        self._save_user_settings()
 
     def _cancel_binding(self) -> None:
         self.menu.set_message(self.keybindings.cancel_rebinding())

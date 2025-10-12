@@ -1,0 +1,24 @@
+{
+  "cell_size": 36,
+  "keybindings": [
+    {
+      "fire": 32,
+      "move_left": 97,
+      "move_right": 100,
+      "power_decrease": 113,
+      "power_increase": 101,
+      "turret_down": 115,
+      "turret_up": 119
+    },
+    {
+      "fire": 13,
+      "move_left": 1073741904,
+      "move_right": 1073741903,
+      "power_decrease": 44,
+      "power_increase": 46,
+      "turret_down": 1073741905,
+      "turret_up": 1073741906
+    }
+  ],
+  "windowed_fullscreen": false
+}

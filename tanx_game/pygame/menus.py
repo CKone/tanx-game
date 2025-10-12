@@ -2,56 +2,238 @@
 
 from __future__ import annotations
 
+import math
+
 import pygame
 
 
 def draw_ui(app) -> None:
     surface = app.screen
-    tank_panel = " | ".join(tank.info_line() for tank in app.logic.tanks)
-    panel_surface = app.font_regular.render(tank_panel, True, pygame.Color("white"))
-    message_surface = app.font_regular.render(app.message, True, pygame.Color("white"))
+    width, height = surface.get_size()
+    panel_height = app.ui_height
+    panel_top = height - panel_height
 
-    panel_bg = pygame.Rect(0, 0, surface.get_width(), app.ui_height)
-    pygame.draw.rect(surface, pygame.Color(0, 0, 0, 180), panel_bg)
+    # Draw a translucent panel at the bottom of the screen
+    overlay = pygame.Surface((width, panel_height), pygame.SRCALPHA)
+    overlay.fill((10, 12, 20, 235))
+    surface.blit(overlay, (0, panel_top))
 
-    surface.blit(panel_surface, (16, 16))
-    surface.blit(message_surface, (16, 48))
+    stats_top = panel_top + 16
+    section_padding = 20
+    bar_height = 16
+    bar_spacing = 6
+    text_color = pygame.Color(230, 230, 230)
+    text_muted = pygame.Color(180, 188, 200)
 
-    instructions = [
-        "Player 1: A/D move, W/S aim, Space fire, Q/E power",
-        "Player 2: ←/→ move, ↑/↓ aim, Enter fire, [/ ] power",
-        "Esc opens the pause menu",
+    def clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
+        return max(minimum, min(maximum, value))
+
+    def angle_to_screen(angle_deg: float, facing: int) -> float:
+        if facing >= 0:
+            return math.radians(angle_deg)
+        return math.radians(180 - angle_deg)
+
+    def draw_angle_dial(center: tuple[int, int], radius: int, tank, tank_index: int) -> None:
+        base_color = pygame.Color(30, 34, 48)
+        ring_color = pygame.Color(80, 86, 110)
+        guide_color = pygame.Color(55, 62, 84)
+        accent = pygame.Color(app.tank_colors[tank_index % len(app.tank_colors)])
+        if tank_index == app.current_player:
+            accent = pygame.Color(
+                min(255, accent.r + 40),
+                min(255, accent.g + 40),
+                min(255, accent.b + 40),
+            )
+
+        pygame.draw.circle(surface, base_color, center, radius)
+        pygame.draw.circle(surface, ring_color, center, radius, width=2)
+
+        arc_rect = pygame.Rect(
+            center[0] - radius + 3,
+            center[1] - radius + 3,
+            (radius - 3) * 2,
+            (radius - 3) * 2,
+        )
+        min_angle = angle_to_screen(tank.min_angle, tank.facing)
+        max_angle = angle_to_screen(tank.max_angle, tank.facing)
+        start_angle, end_angle = sorted((min_angle, max_angle))
+        pygame.draw.arc(surface, ring_color, arc_rect, start_angle, end_angle, 2)
+
+        zero_angle = angle_to_screen(0, tank.facing)
+        zero_end = (
+            center[0] + int(math.cos(zero_angle) * (radius - 6)),
+            center[1] - int(math.sin(zero_angle) * (radius - 6)),
+        )
+        pygame.draw.line(surface, guide_color, center, zero_end, 2)
+
+        turret_angle = angle_to_screen(tank.turret_angle, tank.facing)
+        pointer_end = (
+            center[0] + int(math.cos(turret_angle) * (radius - 6)),
+            center[1] - int(math.sin(turret_angle) * (radius - 6)),
+        )
+        pygame.draw.line(surface, accent, center, pointer_end, 3)
+        pygame.draw.circle(surface, accent, pointer_end, 4)
+
+        angle_surface = app.font_small.render(f"{tank.turret_angle}°", True, text_color)
+        angle_rect = angle_surface.get_rect(center=center)
+        surface.blit(angle_surface, angle_rect)
+
+    def draw_progress_bar(
+        bar_rect: pygame.Rect,
+        ratio: float,
+        label: str,
+        value_text: str,
+        fill_color: pygame.Color,
+    ) -> None:
+        pygame.draw.rect(surface, pygame.Color(36, 40, 54), bar_rect, border_radius=6)
+        fill_width = int(bar_rect.width * clamp(ratio))
+        if fill_width > 0:
+            fill_rect = pygame.Rect(bar_rect.left, bar_rect.top, fill_width, bar_rect.height)
+            pygame.draw.rect(surface, fill_color, fill_rect, border_radius=6)
+        pygame.draw.rect(surface, pygame.Color(14, 16, 24), bar_rect, width=1, border_radius=6)
+
+        label_surface = app.font_small.render(label, True, text_color)
+        label_rect = label_surface.get_rect(left=bar_rect.left + 8, centery=bar_rect.centery)
+        surface.blit(label_surface, label_rect)
+
+        value_surface = app.font_small.render(value_text, True, text_muted)
+        value_rect = value_surface.get_rect(right=bar_rect.right - 8, centery=bar_rect.centery)
+        surface.blit(value_surface, value_rect)
+
+    tanks = list(app.logic.tanks)
+    if not tanks:
+        return
+
+    section_width = width // len(tanks)
+
+    for idx, tank in enumerate(tanks):
+        section_left = idx * section_width
+        section_right = (
+            section_left + section_width if idx < len(tanks) - 1 else width
+        )
+        inner_left = section_left + section_padding
+        inner_right = section_right - section_padding
+        available_width = max(1, inner_right - inner_left)
+        dial_radius = clamp(available_width / 6, 18, 28)
+        dial_radius = int(dial_radius)
+        name_surface = app.font_regular.render(tank.name, True, text_color)
+        name_y = stats_top
+        name_x = inner_left if idx == 0 else max(inner_left, inner_right - name_surface.get_width())
+        surface.blit(name_surface, (name_x, name_y))
+
+        center_layout = False
+        if idx == 0:
+            dial_center_x = inner_right - dial_radius
+            bar_area_left = inner_left
+            bar_area_right = dial_center_x - dial_radius - 12
+        else:
+            dial_center_x = inner_left + dial_radius
+            bar_area_left = dial_center_x + dial_radius + 12
+            bar_area_right = inner_right
+
+        if bar_area_right - bar_area_left < 120:
+            # Fallback to a centered layout if the screen is too narrow
+            bar_area_left = inner_left
+            bar_area_right = inner_right
+            dial_center_x = (inner_left + inner_right) // 2
+            center_layout = True
+
+        bar_left = int(bar_area_left)
+        bar_right = int(bar_area_right)
+        if bar_right <= bar_left:
+            bar_left = inner_left
+            bar_right = inner_right
+        max_bar_width = max(1, inner_right - inner_left)
+        bar_width = max(60, min(bar_right - bar_left, max_bar_width))
+        bar_right = bar_left + bar_width
+        if bar_right > inner_right:
+            bar_right = inner_right
+            bar_left = bar_right - bar_width
+        if bar_left < inner_left:
+            bar_left = inner_left
+            bar_right = min(inner_right, bar_left + bar_width)
+        bar_width = bar_right - bar_left
+        if bar_width <= 0:
+            bar_width = max(60, max_bar_width // 2)
+            bar_left = inner_left
+            bar_right = min(inner_right, bar_left + bar_width)
+
+        bar_total_height = bar_height * 3 + bar_spacing * 2
+        if center_layout:
+            dial_center_y = name_y + name_surface.get_height() + dial_radius + 6
+            bar_top = dial_center_y + dial_radius + 10
+        else:
+            bar_top = name_y + name_surface.get_height() + 6
+            dial_center_y = bar_top + bar_total_height // 2
+
+        bar_rects = []
+        current_y = bar_top
+        for _ in range(3):
+            rect = pygame.Rect(bar_left, current_y, bar_width, bar_height)
+            bar_rects.append(rect)
+            current_y += bar_height + bar_spacing
+
+        max_hp = getattr(tank, "max_hp", 100)
+        health_ratio = clamp(tank.hp / max_hp if max_hp else 0)
+        health_color = pygame.Color(210, 80, 80)
+        if tank.hp > max_hp * 0.6:
+            health_color = pygame.Color(120, 200, 120)
+        elif tank.hp > max_hp * 0.3:
+            health_color = pygame.Color(230, 180, 90)
+        draw_progress_bar(
+            bar_rects[0],
+            health_ratio,
+            "Health",
+            f"{int(tank.hp)}/{max_hp}",
+            health_color,
+        )
+
+        power_range = max(0.001, tank.max_power - tank.min_power)
+        power_ratio = clamp((tank.shot_power - tank.min_power) / power_range)
+        power_color = pygame.Color(90, 160, 230)
+        draw_progress_bar(
+            bar_rects[1],
+            power_ratio,
+            "Power",
+            f"{tank.shot_power:.2f}x",
+            power_color,
+        )
+
+        super_ratio = clamp(tank.super_power)
+        super_ready = super_ratio >= 1.0 - 1e-3
+        super_color = pygame.Color(240, 200, 90) if super_ready else pygame.Color(200, 120, 230)
+        super_value = "Ready" if super_ready else f"{int(super_ratio * 100):02d}%"
+        draw_progress_bar(
+            bar_rects[2],
+            super_ratio,
+            "Super",
+            super_value,
+            super_color,
+        )
+
+        draw_angle_dial((dial_center_x, dial_center_y), dial_radius, tank, idx)
+
+    message = app.message or ""
+    if message:
+        message_surface = app.font_regular.render(message, True, text_color)
+        message_rect = message_surface.get_rect(center=(width // 2, panel_top + 28))
+        surface.blit(message_surface, message_rect)
+
+    instruction_parts = [
+        "P1: A/D move, W/S aim, Space fire, Q/E power",
+        "P2: ←/→ move, ↑/↓ aim, Enter fire, [/ ] power",
+        "Esc: pause menu",
     ]
     if app.cheat_enabled:
-        instructions.append("F1 toggles the cheat console")
-    for idx, line in enumerate(instructions):
-        text_surface = app.font_small.render(line, True, pygame.Color(200, 200, 200))
-        surface.blit(text_surface, (16, 76 + idx * 18))
-
-    bar_start_y = 76 + len(instructions) * 18 + 16
-    bar_width = 180
-    bar_height = 12
-    for idx, tank in enumerate(app.logic.tanks):
-        label_surface = app.font_small.render(
-            f"{tank.name} Superpower", True, pygame.Color(220, 220, 220)
-        )
-        label_y = bar_start_y + idx * 28
-        surface.blit(label_surface, (16, label_y))
-
-        bar_rect = pygame.Rect(16, label_y + 14, bar_width, bar_height)
-        pygame.draw.rect(surface, pygame.Color(60, 60, 60), bar_rect, border_radius=6)
-        fill_width = int(bar_width * max(0.0, min(1.0, tank.super_power)))
-        if fill_width > 0:
-            fill_rect = pygame.Rect(bar_rect.left, bar_rect.top, fill_width, bar_height)
-            color = app.tank_colors[idx % len(app.tank_colors)]
-            pygame.draw.rect(surface, color, fill_rect, border_radius=6)
-        pygame.draw.rect(surface, pygame.Color(20, 20, 20), bar_rect, width=1, border_radius=6)
-
-        if tank.super_power >= 1.0:
-            ready_text = "Ready: B bomber, N squad"
-            ready_color = pygame.Color(255, 235, 140) if idx == app.current_player else pygame.Color(210, 210, 210)
-            ready_surface = app.font_small.render(ready_text, True, ready_color)
-            surface.blit(ready_surface, (bar_rect.right + 16, bar_rect.top - 2))
+        instruction_parts.append("F1: cheat console")
+    instructions_text = "   |   ".join(instruction_parts)
+    instructions_surface = app.font_small.render(instructions_text, True, text_muted)
+    instructions_rect = instructions_surface.get_rect(centerx=width // 2)
+    bottom_margin = max(20, panel_height // 4)
+    instructions_rect.bottom = panel_top + panel_height - bottom_margin
+    if instructions_rect.bottom < panel_top + instructions_surface.get_height() + 12:
+        instructions_rect.bottom = panel_top + instructions_surface.get_height() + 12
+    surface.blit(instructions_surface, instructions_rect)
 
     if app.cheat_enabled and app.cheat_menu_visible:
         overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)

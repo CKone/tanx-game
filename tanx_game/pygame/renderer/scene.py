@@ -260,17 +260,20 @@ def draw_tanks(app) -> None:
         turret_shadow = _scale_color(base_color, 0.8)
 
         x = offset_x + tank.x * cell
-        y = tank.y * cell + offset_y
+        ground = app.logic.world.ground_height(tank.x + 0.5)
+        if ground is None:
+            ground = tank.y + 1
+        base_y = offset_y + ground * cell
         facing = tank.facing
 
         # Tracks -----------------------------------------------------------------
         track_margin = cell * 0.06
-        track_rect = pygame.Rect(
-            int(x - track_margin),
-            int(y + cell - track_height),
-            int(cell + track_margin * 2),
-            int(track_height),
-        )
+        track_height_px = max(2, int(round(track_height)))
+        track_width_px = max(2, int(round(cell + track_margin * 2)))
+        track_left = int(round(x - track_margin))
+        track_bottom = int(round(base_y))
+        track_top = track_bottom - track_height_px
+        track_rect = pygame.Rect(track_left, track_top, track_width_px, track_height_px)
         pygame.draw.rect(surface, track_color, track_rect, border_radius=int(track_height * 0.35))
 
         wheel_radius = cell * 0.14
@@ -282,12 +285,11 @@ def draw_tanks(app) -> None:
             pygame.draw.circle(surface, dark_grey, (int(wheel_x), int(wheel_y)), int(wheel_radius * 0.55))
 
         # Hull --------------------------------------------------------------------
-        hull_rect = pygame.Rect(
-            int(x - cell * 0.05),
-            int(y + cell - track_height - hull_height),
-            int(cell * 1.1),
-            int(hull_height),
-        )
+        hull_height_px = max(4, int(round(hull_height)))
+        hull_width_px = max(4, int(round(cell * 1.1)))
+        hull_left = int(round(x - cell * 0.05))
+        hull_top = track_rect.top - hull_height_px
+        hull_rect = pygame.Rect(hull_left, hull_top, hull_width_px, hull_height_px)
         pygame.draw.rect(surface, hull_color, hull_rect, border_radius=int(cell * 0.18))
 
         # Hull shading strip

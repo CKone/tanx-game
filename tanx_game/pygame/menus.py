@@ -18,7 +18,7 @@ def draw_ui(app) -> None:
     overlay.fill((10, 12, 20, 235))
     surface.blit(overlay, (0, panel_top))
 
-    stats_top = panel_top + 16
+    stats_top = panel_top + 12
     section_padding = 20
     bar_height = 16
     bar_spacing = 6
@@ -160,11 +160,11 @@ def draw_ui(app) -> None:
 
         bar_total_height = bar_height * 3 + bar_spacing * 2
         if center_layout:
-            dial_center_y = name_y + name_surface.get_height() + dial_radius + 6
+            dial_center_y = name_y + name_surface.get_height() + dial_radius + 2
             bar_top = dial_center_y + dial_radius + 10
         else:
-            bar_top = name_y + name_surface.get_height() + 6
-            dial_center_y = bar_top + bar_total_height // 2
+            bar_top = name_y + name_surface.get_height() + 2
+            dial_center_y = bar_top + bar_total_height // 2 - 6
 
         bar_rects = []
         current_y = bar_top
@@ -229,10 +229,7 @@ def draw_ui(app) -> None:
     instructions_text = "   |   ".join(instruction_parts)
     instructions_surface = app.font_small.render(instructions_text, True, text_muted)
     instructions_rect = instructions_surface.get_rect(centerx=width // 2)
-    bottom_margin = max(20, panel_height // 4)
-    instructions_rect.bottom = panel_top + panel_height - bottom_margin
-    if instructions_rect.bottom < panel_top + instructions_surface.get_height() + 12:
-        instructions_rect.bottom = panel_top + instructions_surface.get_height() + 12
+    instructions_rect.bottom = panel_top + panel_height - 6
     surface.blit(instructions_surface, instructions_rect)
 
     if app.cheat_enabled and app.cheat_menu_visible:

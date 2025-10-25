@@ -20,5 +20,6 @@
       "turret_up": 1073741906
     }
   ],
+  "terrain_style": "urban",
   "windowed_fullscreen": false
 }

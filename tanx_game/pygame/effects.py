@@ -72,6 +72,37 @@ class EffectsSystem:
     def spawn_trail(self, position: tuple[float, float]) -> None:
         self.trail_particles.append((position, self.trail_duration))
 
+    def spawn_dust_column(self, position: tuple[float, float], scale: float = 1.0) -> None:
+        base_x, base_y = position
+        particle_count = max(12, int(36 * max(0.5, scale)))
+        max_radius = max(2.5, 4.5 * max(0.5, scale))
+        for _ in range(particle_count):
+            angle = random.uniform(-math.pi * 0.55, -math.pi * 0.1)
+            speed = random.uniform(0.6, 1.8) * max(0.6, scale)
+            vx = math.cos(angle) * speed * random.uniform(0.4, 1.0)
+            vy = math.sin(angle) * speed
+            life = random.uniform(0.8, 1.6) * max(0.7, scale)
+            radius = random.uniform(1.2, max_radius)
+            color = (
+                random.randint(120, 150),
+                random.randint(110, 135),
+                random.randint(96, 115),
+            )
+            self.particles.append(
+                Particle(
+                    x=base_x + random.uniform(-0.6, 0.6),
+                    y=base_y + random.uniform(-0.1, 0.2),
+                    vx=vx,
+                    vy=vy,
+                    life=life,
+                    max_life=life,
+                    radius=radius,
+                    color=color,
+                )
+            )
+        if len(self.particles) > 260:
+            self.particles = self.particles[-260:]
+
     def spawn_impact_particles(self, result: ShotResult) -> None:
         if result.impact_x is None or result.impact_y is None:
             return

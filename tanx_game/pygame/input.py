@@ -218,6 +218,14 @@ class InputHandler:
                 app._change_resolution(1)
                 return
 
+        if app.state == "settings_menu" and app.menu.selection == getattr(app, "settings_style_option_index", -1):
+            if key == pygame.K_LEFT:
+                app._change_terrain_style(-1)
+                return
+            if key == pygame.K_RIGHT:
+                app._change_terrain_style(1)
+                return
+
         if app.state == "keybind_menu":
             if app.keybindings.rebinding_target is not None:
                 if key == pygame.K_ESCAPE:

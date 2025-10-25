@@ -232,6 +232,98 @@ def draw_world(app) -> None:
     pygame.draw.aalines(surface, app.crater_rim_color, False, surface_points, blend=1)
 
 
+def draw_buildings(app) -> None:
+    world = app.logic.world
+    buildings = getattr(world, "buildings", None)
+    if not buildings:
+        return
+
+    surface = app.screen
+    cell = app.cell_size
+    offset_x = app.playfield_offset_x
+    offset_y = app.ui_height
+
+    style_colors = {
+        "block": pygame.Color(92, 104, 120),
+        "loft": pygame.Color(136, 120, 108),
+        "tower": pygame.Color(86, 108, 150),
+    }
+    rubble_color = pygame.Color(124, 92, 72)
+    unstable_color = pygame.Color(215, 178, 72)
+
+    clip_rect = pygame.Rect(0, offset_y, surface.get_width(), surface.get_height() - offset_y)
+
+    for building in sorted(buildings, key=lambda b: b.base, reverse=True):
+        if building.collapsed:
+            continue
+        base_color = style_colors.get(building.style, pygame.Color(102, 112, 128))
+        left_px = offset_x + int(round(building.left * cell))
+        right_px = offset_x + int(round(building.right * cell))
+        width_px = max(3, right_px - left_px)
+
+        floor_bottom = building.base
+        first_intact = building.first_intact_floor_index()
+        for idx, floor in enumerate(building.floors):
+            floor_top = floor_bottom - floor.height
+            top_world = min(floor_top, floor_bottom)
+            bottom_world = max(floor_top, floor_bottom)
+
+            rect_top = offset_y + int(round(top_world * cell))
+            rect_bottom = offset_y + int(round(bottom_world * cell))
+            rect_height = rect_bottom - rect_top
+            if rect_height <= 0:
+                floor_bottom = floor_top
+                continue
+
+            rect = pygame.Rect(left_px, rect_top, width_px, rect_height)
+            if not rect.colliderect(clip_rect):
+                floor_bottom = floor_top
+                continue
+            rect = rect.clip(clip_rect)
+
+            if floor.destroyed:
+                fill_color = rubble_color
+            else:
+                brightness = max(0.55, 1.0 - 0.08 * idx)
+                fill_color = _scale_color(_blend_color(base_color, pygame.Color("white"), 0.18 * idx), brightness)
+
+            pygame.draw.rect(surface, fill_color, rect)
+
+            if not floor.destroyed and rect.width > 10 and rect.height > 10:
+                window_cols = max(1, rect.width // max(7, int(cell * 0.75)))
+                window_rows = max(1, rect.height // max(12, int(cell * 1.1)))
+                window_w = max(3, (rect.width - (window_cols + 1) * 3) // window_cols)
+                window_h = max(3, (rect.height - (window_rows + 1) * 3) // window_rows)
+                glass_color = _blend_color(fill_color, pygame.Color(220, 230, 240), 0.65)
+                sill_color = _blend_color(fill_color, pygame.Color(40, 40, 40), 0.55)
+                for row in range(window_rows):
+                    for col in range(window_cols):
+                        wx = rect.left + 3 + col * (window_w + 3)
+                        wy = rect.top + 3 + row * (window_h + 3)
+                        window_rect = pygame.Rect(wx, wy, window_w, window_h)
+                        pygame.draw.rect(surface, glass_color, window_rect)
+                        pygame.draw.line(surface, sill_color, window_rect.bottomleft, window_rect.bottomright, 1)
+
+            border_color = _blend_color(fill_color, pygame.Color(24, 24, 28), 0.6)
+            pygame.draw.rect(surface, border_color, rect, 1)
+
+            if building.unstable and first_intact is not None and not floor.destroyed and idx == first_intact:
+                hazard = rect.inflate(-6, -6)
+                if hazard.width > 4 and hazard.height > 4:
+                    pygame.draw.rect(surface, unstable_color, hazard, 2)
+
+            floor_bottom = floor_top
+
+        roof_world = min(building.top, building.base)
+        roof_y = offset_y + int(round(roof_world * cell))
+        roof_rect = pygame.Rect(left_px - 1, roof_y - 4, width_px + 2, 5)
+        roof_rect = roof_rect.clip(clip_rect)
+        if roof_rect.height > 0:
+            roof_color = _blend_color(base_color, pygame.Color("white"), 0.35)
+            pygame.draw.rect(surface, roof_color, roof_rect)
+            pygame.draw.line(surface, _blend_color(roof_color, pygame.Color(18, 18, 26), 0.6), roof_rect.topleft, roof_rect.topright, 1)
+
+
 def draw_tanks(app) -> None:
     surface = app.screen
     offset_y = app.ui_height

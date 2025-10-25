@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from tanx_game.core.tank import Tank
-from tanx_game.core.world import TerrainSettings, World
+from tanx_game.core.world import Building, TerrainSettings, World
 
 
 @dataclass
@@ -22,6 +22,8 @@ class ShotResult:
     path: List[tuple]
     fatal_hit: bool = False
     fatal_tank: Optional[Tank] = None
+    hit_building: Optional[Building] = None
+    hit_building_floor: Optional[int] = None
 
 
 class Game:
@@ -102,6 +104,8 @@ class Game:
         y = shooter.y - 0.5
         path: List[tuple] = []
         hit_tank: Optional[Tank] = None
+        hit_building: Optional[Building] = None
+        hit_floor: Optional[int] = None
         impact_x: Optional[float] = None
         impact_y: Optional[float] = None
         dt = self.projectile_time_step
@@ -116,6 +120,11 @@ class Game:
                 continue
             ix = int(round(x))
             iy = int(round(y))
+            building_hit = self.world.building_hit_test(x, y)
+            if building_hit:
+                hit_building, hit_floor = building_hit
+                impact_x, impact_y = x, y
+                break
             for tank in self.tanks:
                 if not tank.alive or tank is shooter:
                     continue
@@ -128,14 +137,23 @@ class Game:
             if self.world.is_solid(ix, iy):
                 impact_x, impact_y = x, y
                 break
-        result = ShotResult(hit_tank, impact_x, impact_y, path)
+        result = ShotResult(
+            hit_tank=hit_tank,
+            impact_x=impact_x,
+            impact_y=impact_y,
+            path=path,
+            hit_building=hit_building,
+            hit_building_floor=hit_floor,
+        )
         if apply_effects:
             self.apply_shot_effects(result)
         return result
 
     def apply_shot_effects(self, result: ShotResult) -> None:
         impact_x, impact_y = result.impact_x, result.impact_y
-        if impact_x is not None and impact_y is not None and result.hit_tank is None:
+        if result.hit_building is not None and impact_x is not None and impact_y is not None:
+            self._apply_building_damage(result)
+        elif impact_x is not None and impact_y is not None and result.hit_tank is None:
             self.world.carve_circle(impact_x, impact_y, self.explosion_radius)
         fatal_tank: Optional[Tank] = None
         if result.hit_tank:
@@ -154,6 +172,26 @@ class Game:
             self.settle_tank(tank)
         result.fatal_hit = fatal_tank is not None
         result.fatal_tank = fatal_tank
+
+    def _apply_building_damage(self, result: ShotResult) -> None:
+        building = result.hit_building
+        if building is None or result.hit_building_floor is None:
+            return
+        floor_idx = result.hit_building_floor
+        if not (0 <= floor_idx < len(building.floors)):
+            return
+        floor = building.floors[floor_idx]
+        if floor.destroyed:
+            return
+        floor.damage(self.damage)
+        if floor.destroyed:
+            intact_remaining = building.first_intact_floor_index()
+            if intact_remaining is None:
+                self.world.schedule_building_collapse(building, delay=0.8)
+            elif floor_idx <= intact_remaining:
+                building.unstable = True
+                if floor_idx == 0:
+                    self.world.schedule_building_collapse(building, delay=1.2)
 
     def _apply_splash_damage(self, impact_x: float, impact_y: float) -> Optional[Tank]:
         radius = self.explosion_radius

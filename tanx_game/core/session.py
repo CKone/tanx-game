@@ -125,6 +125,8 @@ class GameSession:
             self.game.apply_shot_effects(result)
         if result and result.hit_tank:
             self.message = f"Direct hit on {result.hit_tank.name}!"
+        elif result and result.hit_building:
+            self.message = "Shot hammered a building."
         elif result and result.impact_x is not None:
             self.message = "Shot impacted the terrain."
         else:

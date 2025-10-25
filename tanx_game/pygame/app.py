@@ -25,6 +25,7 @@ from tanx_game.pygame.menu_controller import MenuController, MenuDefinition, Men
 from tanx_game.pygame.renderer import (
     draw_background,
     draw_aim_indicator,
+    draw_buildings,
     draw_debris,
     draw_explosions,
     draw_particles,
@@ -50,11 +51,13 @@ class PygameTanx:
         ui_height: int = 180,
         cheat_enabled: bool = False,
         start_in_menu: bool = True,
+        debug: bool = False,
     ) -> None:
         pygame.init()
         pygame.font.init()
 
         self.cheat_enabled = cheat_enabled
+        self.debug = debug
         self._ui_height = ui_height
 
         self._user_settings = load_user_settings()
@@ -80,6 +83,12 @@ class PygameTanx:
 
         self.projectile_interval = 0.03
 
+        self._terrain_styles = [
+            {"key": "classic", "label": "Classic Hills"},
+            {"key": "urban", "label": "Urban Conflict"},
+        ]
+        self._terrain_style_index = 0
+
         self.effects = EffectsSystem(
             cell_size=self.cell_size,
             ui_height=self.ui_height,
@@ -89,14 +98,15 @@ class PygameTanx:
         self.menu = MenuController()
         self.state = "main_menu" if start_in_menu else "playing"
         self._settings_instructions = (
-            "Use ←/→ to adjust the resolution, Enter toggles fullscreen."
+            "Use ←/→ to adjust the highlighted option. Enter toggles fullscreen."
         )
 
         self.cheat_menu_visible = False
 
         self.settings_resolution_option_index = 0
-        self.settings_keybind_option_index = 1
-        self.settings_fullscreen_option_index = 2
+        self.settings_style_option_index = 1
+        self.settings_keybind_option_index = 2
+        self.settings_fullscreen_option_index = 3
 
         self.keybindings = KeybindingManager()
         self.player_bindings = self.keybindings.player_bindings
@@ -106,6 +116,12 @@ class PygameTanx:
         if isinstance(stored_keybindings, list):
             self.keybindings.load_from_config(stored_keybindings)
             self.player_bindings = self.keybindings.player_bindings
+
+        stored_style = self._user_settings.get("terrain_style")
+        if isinstance(stored_style, str):
+            self._set_terrain_style(stored_style)
+        else:
+            self._set_terrain_style(self._terrain_styles[self._terrain_style_index]["key"])
 
         self.sky_color_top = pygame.Color(78, 149, 205)
         self.sky_color_bottom = pygame.Color(19, 57, 84)
@@ -196,9 +212,42 @@ class PygameTanx:
             "cell_size": int(self.display.cell_size),
             "windowed_fullscreen": bool(self.display.windowed_fullscreen),
             "keybindings": self.keybindings.to_config(),
+            "terrain_style": self.terrain_style,
         }
         save_user_settings(data)
         self._user_settings = data
+
+    def _debug(self, message: str) -> None:
+        if self.debug:
+            print(f"[DEBUG] {message}", flush=True)
+
+    def _debug_world_summary(self) -> None:
+        if not self.debug:
+            return
+        game = getattr(self, "logic", None)
+        if game is None:
+            return
+        terrain = getattr(game, "world", None)
+        if terrain is None:
+            return
+        style = getattr(terrain.settings, "style", "classic")
+        self._debug(
+            f"World generated: style={style}, size={terrain.width}x{terrain.height}, buildings={len(getattr(terrain, 'buildings', []))}"
+        )
+        buildings = getattr(terrain, "buildings", [])
+        if not buildings:
+            return
+        limit = 5
+        for building in buildings[:limit]:
+            floors_status = ", ".join(
+                f"{floor.hp}/{floor.max_hp}" for floor in building.floors
+            )
+            self._debug(
+                f"  Building {building.id}: x=({building.left:.1f},{building.right:.1f}), base={building.base:.1f}, floors={len(building.floors)} [{floors_status}]"
+            )
+        remaining = len(buildings) - limit
+        if remaining > 0:
+            self._debug(f"  ... and {remaining} more buildings")
 
     def _reset_match_progress(self) -> None:
         self.match_scores = [0, 0]
@@ -212,7 +261,14 @@ class PygameTanx:
         terrain_settings: Optional[TerrainSettings],
         seed: Optional[int],
     ) -> None:
-        self.logic = Game(player_one, player_two, terrain_settings, seed)
+        if terrain_settings is None:
+            effective_settings = TerrainSettings(seed=seed)
+        else:
+            effective_settings = TerrainSettings(**vars(terrain_settings))
+            if seed is not None:
+                effective_settings.seed = seed
+        effective_settings.style = self.terrain_style
+        self.logic = Game(player_one, player_two, effective_settings, effective_settings.seed)
         self.player_names = [player_one, player_two]
         self._terrain_settings = self.logic.world.settings
 
@@ -236,6 +292,8 @@ class PygameTanx:
 
         for tank in self.logic.tanks:
             tank.reset_super_power()
+
+        self._debug_world_summary()
 
     def _clone_current_settings(self) -> TerrainSettings:
         settings = self.logic.world.settings
@@ -326,6 +384,35 @@ class PygameTanx:
     def _windowed_fullscreen_label(self) -> str:
         return self.display.windowed_fullscreen_label()
 
+    def _terrain_style_option_label(self) -> str:
+        style = self._terrain_styles[self._terrain_style_index]
+        return f"Map Style: {style['label']}"
+
+    @property
+    def terrain_style(self) -> str:
+        return self._terrain_styles[self._terrain_style_index]["key"]
+
+    def _set_terrain_style(self, style_key: str) -> None:
+        for idx, entry in enumerate(self._terrain_styles):
+            if entry["key"] == style_key:
+                self._terrain_style_index = idx
+                break
+        else:
+            self._terrain_style_index = 0
+
+    def _change_terrain_style(self, direction: int) -> None:
+        if not self._terrain_styles:
+            return
+        current = self._terrain_style_index
+        self._terrain_style_index = (self._terrain_style_index + direction) % len(self._terrain_styles)
+        if self._terrain_style_index != current:
+            style = self._terrain_styles[self._terrain_style_index]
+            if self.state == "settings_menu":
+                self.menu.set_message(f"Map style set to {style['label']}")
+                self._update_settings_menu_options()
+            self._debug(f"Terrain style changed to {style['key']} ({style['label']})")
+            self._save_user_settings()
+
     def _enter_windowed_fullscreen(self) -> None:
         base_settings = self._last_regular_settings
         new_settings, message = self.display.enter_windowed_fullscreen(base_settings)
@@ -369,10 +456,12 @@ class PygameTanx:
 
     def _build_settings_menu_options(self) -> List[MenuOption]:
         self.settings_resolution_option_index = 0
-        self.settings_keybind_option_index = 1
-        self.settings_fullscreen_option_index = 2
+        self.settings_style_option_index = 1
+        self.settings_keybind_option_index = 2
+        self.settings_fullscreen_option_index = 3
         return [
             MenuOption(self._resolution_option_label(), self._action_cycle_resolution_forward),
+            MenuOption(self._terrain_style_option_label(), self._action_cycle_terrain_style_forward),
             MenuOption("Configure Keybindings", self._action_open_keybindings),
             MenuOption(self._windowed_fullscreen_label(), self._action_enter_windowed_fullscreen),
             MenuOption("Back to Start Menu", self._action_settings_back),
@@ -504,6 +593,9 @@ class PygameTanx:
     def _action_cycle_resolution_forward(self) -> None:
         self._change_resolution(1)
 
+    def _action_cycle_terrain_style_forward(self) -> None:
+        self._change_terrain_style(1)
+
     def _action_resume_game(self) -> None:
         self.state = "playing"
         self._close_menu()
@@ -549,6 +641,23 @@ class PygameTanx:
 
     def _update(self, dt: float) -> None:
         self.effects.update(dt, self.logic.world)
+        collapsed = self.logic.world.update_collapsing_buildings(dt)
+        if collapsed:
+            collapse_msg = "Building collapsed!"
+            if self.session.message:
+                self.session.message = f"{collapse_msg} {self.session.message}"
+            else:
+                self.session.message = collapse_msg
+        for building in collapsed:
+            if self.debug:
+                self._debug(f"Building {building.id} collapsed at x=({building.left:.1f},{building.right:.1f})")
+            self.effects.spawn_dust_column(
+                (
+                    (building.left + building.right) * 0.5,
+                    building.base,
+                ),
+                scale=max(1.0, building.width * 0.4),
+            )
         power_finished = self.superpowers.update(dt)
         if power_finished and self.session.superpower_active_player is not None:
             self.session.complete_superpower()
@@ -587,6 +696,16 @@ class PygameTanx:
         resolved = self.session.resolve_projectile(result)
         if resolved:
             self.effects.spawn_impact_particles(resolved)
+            if self.debug and resolved.hit_building is not None:
+                building = resolved.hit_building
+                floor_idx = resolved.hit_building_floor
+                status = "unknown"
+                if floor_idx is not None and 0 <= floor_idx < len(building.floors):
+                    floor = building.floors[floor_idx]
+                    status = "destroyed" if floor.destroyed else f"{floor.hp}/{floor.max_hp}"
+                self._debug(
+                    f"Projectile hit building {building.id} floor={floor_idx} status={status} unstable={building.unstable}"
+                )
         if resolved and resolved.impact_x is not None and resolved.impact_y is not None:
             scale = 1.0
             if resolved.fatal_hit:
@@ -603,6 +722,7 @@ class PygameTanx:
         target_surface.fill((0, 0, 0))
         draw_background(self)
         draw_world(self)
+        draw_buildings(self)
         draw_tanks(self)
         draw_aim_indicator(self)
         draw_trails(self)

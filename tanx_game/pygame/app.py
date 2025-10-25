@@ -47,7 +47,7 @@ class PygameTanx:
         terrain_settings: Optional[TerrainSettings] = None,
         seed: Optional[int] = None,
         cell_size: int = 28,
-        ui_height: int = 120,
+        ui_height: int = 180,
         cheat_enabled: bool = False,
         start_in_menu: bool = True,
     ) -> None:
@@ -76,6 +76,7 @@ class PygameTanx:
         self.running = True
 
         self.player_names = [player_one, player_two]
+        self._reset_match_progress()
 
         self.projectile_interval = 0.03
 
@@ -199,6 +200,11 @@ class PygameTanx:
         save_user_settings(data)
         self._user_settings = data
 
+    def _reset_match_progress(self) -> None:
+        self.match_scores = [0, 0]
+        self.rounds_played = 0
+        self._round_recorded = False
+
     def _setup_new_match(
         self,
         player_one: str,
@@ -223,6 +229,7 @@ class PygameTanx:
             self.logic, projectile_interval=self.projectile_interval
         )
         self.cheat_menu_visible = False
+        self._round_recorded = False
 
         if not self.display.windowed_fullscreen:
             self._last_regular_settings = TerrainSettings(**vars(self.logic.world.settings))
@@ -289,8 +296,16 @@ class PygameTanx:
             ),
         )
 
-    def _restart_match(self, *, start_in_menu: bool, message: Optional[str] = None) -> None:
+    def _restart_match(
+        self,
+        *,
+        start_in_menu: bool,
+        message: Optional[str] = None,
+        reset_scores: bool = False,
+    ) -> None:
         settings = self._clone_current_settings()
+        if reset_scores:
+            self._reset_match_progress()
         self._setup_new_match(
             self.player_names[0],
             self.player_names[1],
@@ -398,7 +413,7 @@ class PygameTanx:
         self.menu.message = None
 
     def _action_start_game(self) -> None:
-        self._restart_match(start_in_menu=False)
+        self._restart_match(start_in_menu=False, reset_scores=True)
 
     def _action_exit_game(self) -> None:
         self.running = False
@@ -475,8 +490,10 @@ class PygameTanx:
         original_damage = self.logic.damage
         scaled_damage = max(1, int(original_damage * damage_scale))
         self.logic.damage = scaled_damage
-        self.logic.apply_shot_effects(result)
-        self.logic.damage = original_damage
+        try:
+            self.logic.apply_shot_effects(result)
+        finally:
+            self.logic.damage = original_damage
         self.effects.spawn_explosion((x_world, y_world), explosion_scale)
         if result.fatal_hit:
             self.effects.spawn_fatal_debris(result, self.logic.tanks, self.tank_colors)
@@ -492,7 +509,11 @@ class PygameTanx:
         self._close_menu()
 
     def _action_abandon_game(self) -> None:
-        self._restart_match(start_in_menu=True, message="Game abandoned.")
+        self._restart_match(
+            start_in_menu=True,
+            message="Game abandoned.",
+            reset_scores=True,
+        )
 
     def _action_start_new_game(self) -> None:
         self._restart_match(start_in_menu=False)
@@ -501,7 +522,11 @@ class PygameTanx:
         victory_message = None
         if self.winner:
             victory_message = f"{self.winner.name} secured the round."
-        self._restart_match(start_in_menu=True, message=victory_message)
+        self._restart_match(
+            start_in_menu=True,
+            message=victory_message,
+            reset_scores=True,
+        )
 
     # ------------------------------------------------------------------
     # Game Loop helpers
@@ -532,6 +557,9 @@ class PygameTanx:
             return
 
         self.session.tick_winner_delay(dt)
+
+        if self.winner and not self._round_recorded:
+            self._record_round_result()
 
         if self.state != "playing":
             return
@@ -675,6 +703,26 @@ class PygameTanx:
         self.menu.set_message("Cheat console: Superpower maxed")
         self.message = "Cheat console: Superpower maxed"
         self.cheat_menu_visible = False
+
+    def _record_round_result(self) -> None:
+        if self._round_recorded:
+            return
+        winner = self.winner
+        if winner:
+            for idx, tank in enumerate(self.logic.tanks):
+                if tank is winner:
+                    self.match_scores[idx] += 1
+                    break
+        self.rounds_played += 1
+        self._round_recorded = True
+        score_line = (
+            f"Score: {self.player_names[0]} {self.match_scores[0]} - "
+            f"{self.player_names[1]} {self.match_scores[1]}"
+        )
+        if self.message:
+            self.message = f"{self.message} {score_line}"
+        else:
+            self.message = score_line
 
 def run_pygame(**kwargs: object) -> None:
     """Convenience helper for launching the pygame client."""

@@ -220,7 +220,10 @@ class InputHandler:
 
         if app.state == "keybind_menu":
             if app.keybindings.rebinding_target is not None:
-                app._finish_binding(key)
+                if key == pygame.K_ESCAPE:
+                    app._cancel_binding()
+                else:
+                    app._finish_binding(key)
                 return
 
         if not app.menu.options:

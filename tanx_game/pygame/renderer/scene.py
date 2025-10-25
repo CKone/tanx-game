@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import random
 from typing import List, Optional, Tuple
 
 import pygame
@@ -232,6 +233,62 @@ def draw_world(app) -> None:
     pygame.draw.aalines(surface, app.crater_rim_color, False, surface_points, blend=1)
 
 
+def draw_rubble(app) -> None:
+    world = app.logic.world
+    rubble = getattr(world, "rubble_segments", None)
+    if not rubble:
+        return
+
+    surface = app.screen
+    cell = app.cell_size
+    offset_x = app.playfield_offset_x
+    offset_y = app.ui_height
+    clip_rect = pygame.Rect(0, offset_y, surface.get_width(), surface.get_height() - offset_y)
+
+    base_color = pygame.Color(118, 105, 94)
+    highlight_base = pygame.Color(170, 158, 146)
+    shadow = pygame.Color(74, 64, 56)
+
+    for segment in rubble:
+        if segment.destroyed or segment.height <= 0:
+            continue
+        left_px = offset_x + int(round(segment.left * cell))
+        right_px = offset_x + int(round(segment.right * cell))
+        width_px = max(2, right_px - left_px)
+        top_world = segment.top
+        bottom_world = max(segment.base, world.ground_height(segment.left) or segment.base)
+        rect_top = offset_y + int(round(top_world * cell))
+        rect_bottom = offset_y + int(round(bottom_world * cell))
+        rect_height = rect_bottom - rect_top
+        if rect_height <= 0:
+            continue
+        rect = pygame.Rect(left_px, rect_top, width_px, rect_height)
+        if not rect.colliderect(clip_rect):
+            continue
+        rect = rect.clip(clip_rect)
+        integrity = segment.hp / segment.max_hp if segment.max_hp else 0.0
+        fill = _blend_color(base_color, pygame.Color(90, 72, 60), 1.0 - integrity)
+        pygame.draw.rect(surface, fill, rect)
+        pygame.draw.rect(surface, shadow, rect, 1)
+        groove_count = max(1, width_px // max(6, int(cell * 0.5)))
+        for groove in range(1, groove_count):
+            x = rect.left + int(round(groove * (rect.width / groove_count)))
+            pygame.draw.line(surface, shadow, (x, rect.top), (x, rect.bottom), 1)
+        if integrity < 0.95:
+            collapse_depth = int(rect.height * (1.0 - integrity) * 0.5)
+            if collapse_depth > 0:
+                pygame.draw.rect(
+                    surface,
+                    shadow,
+                    pygame.Rect(rect.left, rect.top, rect.width, collapse_depth),
+                    0,
+                )
+        highlight_rect = rect.inflate(-rect.width * 0.3, -rect.height * 0.4)
+        highlight = _blend_color(highlight_base, pygame.Color(200, 190, 176), integrity)
+        if highlight_rect.width > 0 and highlight_rect.height > 0:
+            pygame.draw.rect(surface, highlight, highlight_rect, 1)
+
+
 def draw_buildings(app) -> None:
     world = app.logic.world
     buildings = getattr(world, "buildings", None)
@@ -253,6 +310,9 @@ def draw_buildings(app) -> None:
 
     clip_rect = pygame.Rect(0, offset_y, surface.get_width(), surface.get_height() - offset_y)
 
+    height_map = world.height_map
+    detail = world.detail
+
     for building in sorted(buildings, key=lambda b: b.base, reverse=True):
         if building.collapsed:
             continue
@@ -261,7 +321,10 @@ def draw_buildings(app) -> None:
         right_px = offset_x + int(round(building.right * cell))
         width_px = max(3, right_px - left_px)
 
-        floor_bottom = building.base
+        column = int(round(((building.left + building.right) * 0.5) * detail))
+        column = max(0, min(len(height_map) - 1, column))
+        ground_height = height_map[column]
+        floor_bottom = min(building.base, ground_height)
         first_intact = building.first_intact_floor_index()
         for idx, floor in enumerate(building.floors):
             floor_top = floor_bottom - floor.height
@@ -281,15 +344,28 @@ def draw_buildings(app) -> None:
                 continue
             rect = rect.clip(clip_rect)
 
+            integrity = floor.hp / floor.max_hp if floor.max_hp else 0.0
+
             if floor.destroyed:
                 fill_color = rubble_color
             else:
                 brightness = max(0.55, 1.0 - 0.08 * idx)
-                fill_color = _scale_color(_blend_color(base_color, pygame.Color("white"), 0.18 * idx), brightness)
+                damaged_tone = _blend_color(base_color, pygame.Color(150, 120, 90), 1.0 - integrity)
+                fill_color = _scale_color(_blend_color(damaged_tone, pygame.Color("white"), 0.18 * idx), brightness)
 
             pygame.draw.rect(surface, fill_color, rect)
 
-            if not floor.destroyed and rect.width > 10 and rect.height > 10:
+            if floor.destroyed:
+                rubble_rng = random.Random((building.id << 8) + idx)
+                debris_rows = max(2, rect.height // max(6, int(cell * 0.45)))
+                for row in range(debris_rows):
+                    y = rect.bottom - 1 - row * max(3, rect.height // (debris_rows + 4))
+                    if y <= rect.top:
+                        break
+                    x_start = rect.left + rubble_rng.randint(0, max(1, rect.width // 6))
+                    x_end = rect.right - rubble_rng.randint(0, max(1, rect.width // 6))
+                    pygame.draw.line(surface, _blend_color(rubble_color, pygame.Color(90, 72, 60), 0.3), (x_start, y), (x_end, y), 2)
+            elif rect.width > 10 and rect.height > 10:
                 window_cols = max(1, rect.width // max(7, int(cell * 0.75)))
                 window_rows = max(1, rect.height // max(12, int(cell * 1.1)))
                 window_w = max(3, (rect.width - (window_cols + 1) * 3) // window_cols)
@@ -303,6 +379,17 @@ def draw_buildings(app) -> None:
                         window_rect = pygame.Rect(wx, wy, window_w, window_h)
                         pygame.draw.rect(surface, glass_color, window_rect)
                         pygame.draw.line(surface, sill_color, window_rect.bottomleft, window_rect.bottomright, 1)
+
+                if integrity < 0.65:
+                    crack_rng = random.Random((building.id << 6) ^ idx)
+                    crack_count = max(2, rect.width // max(18, int(cell)))
+                    crack_color = _blend_color(pygame.Color(30, 24, 20), fill_color, 0.4)
+                    for _ in range(crack_count):
+                        start_x = crack_rng.randint(rect.left + 2, rect.right - 2)
+                        start_y = crack_rng.randint(rect.top + 2, rect.bottom - 4)
+                        end_x = start_x + crack_rng.randint(-rect.width // 4, rect.width // 4)
+                        end_y = start_y + crack_rng.randint(4, rect.height // 2)
+                        pygame.draw.line(surface, crack_color, (start_x, start_y), (max(rect.left + 1, min(rect.right - 1, end_x)), min(rect.bottom - 1, end_y)), 1)
 
             border_color = _blend_color(fill_color, pygame.Color(24, 24, 28), 0.6)
             pygame.draw.rect(surface, border_color, rect, 1)

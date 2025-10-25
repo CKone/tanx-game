@@ -75,6 +75,35 @@ class Building:
         return None
 
 
+@dataclass
+class RubbleSegment:
+    """Rubble chunk spawned when a building collapses."""
+
+    id: int
+    left: float
+    right: float
+    base: float
+    height: float
+    max_hp: int
+    hp: int
+    destroyed: bool = False
+    initial_height: float = 0.0
+
+    @property
+    def top(self) -> float:
+        return self.base - self.height
+
+    def damage(self, amount: int) -> None:
+        self.hp = max(0, self.hp - amount)
+        if self.hp == 0:
+            self.destroyed = True
+            self.height = 0.0
+        else:
+            if self.max_hp > 0 and self.initial_height > 0:
+                ratio = max(0.0, self.hp / self.max_hp)
+                self.height = max(0.2, self.initial_height * ratio)
+
+
 class World:
     """Terrain described by a 2D signed-distance field derived from a height map."""
 
@@ -89,6 +118,8 @@ class World:
 
         self.height_map: List[float] = [self.height * 0.5 for _ in range(self.grid_width)]
         self.buildings: List[Building] = []
+        self.rubble_segments: List[RubbleSegment] = []
+        self._rubble_id_counter = 0
         self._generate_height_map()
         self._generate_structures()
         self._pending_collapses: List[Building] = []
@@ -187,10 +218,14 @@ class World:
             self._generate_urban_structures()
         else:
             self.buildings = []
+            self.rubble_segments = []
+            self._pending_collapses = []
 
     def _generate_urban_structures(self) -> None:
         rng = self._rng
         self.buildings = []
+        self.rubble_segments = []
+        self._pending_collapses = []
         reserved_margin = 6.0
         left_bound = reserved_margin
         right_bound = max(left_bound, self.width - reserved_margin)
@@ -217,7 +252,7 @@ class World:
                 x += rng.uniform(1.0, 2.0)
                 continue
 
-            base_height = min_height
+            base_height = sum(heights) / len(heights)
             floor_count = rng.randint(2, 5)
             floors: List[BuildingFloor] = []
             for level in range(floor_count):
@@ -241,10 +276,12 @@ class World:
                 style=variant,
             )
             self.buildings.append(building)
+            self._level_ground(building.left, building.right, building.base)
             building_id += 1
 
             gap = rng.uniform(1.2, 3.2)
             x = end + gap + rng.uniform(-0.4, 0.8)
+            self._smooth_heights(max(0, int((start - 2.0) * self.detail)), min(self.grid_width - 1, int((end + 2.0) * self.detail)), iterations=4)
 
     def _terrain_slice(self, left: float, right: float) -> List[float]:
         if right <= left:
@@ -257,6 +294,32 @@ class World:
 
     # ------------------------------------------------------------------
     # Building utilities
+    def _next_rubble_id(self) -> int:
+        value = self._rubble_id_counter
+        self._rubble_id_counter += 1
+        return value
+
+    def _level_ground(self, left: float, right: float, target_height: float) -> None:
+        detail = self.detail
+        span_start = max(0, int(math.floor(left * detail)))
+        span_end = min(self.grid_width - 1, int(math.ceil(right * detail)))
+        if span_start > span_end:
+            return
+        target_height = max(self.settings.min_height, min(self.settings.max_height, target_height))
+        for hx in range(span_start, span_end + 1):
+            self.height_map[hx] = target_height
+
+        blend_cells = max(1, int(detail * 1.5))
+        for offset in range(1, blend_cells + 1):
+            factor = (blend_cells - offset + 1) / (blend_cells + 1)
+            left_index = span_start - offset
+            if left_index >= 0:
+                original = self.height_map[left_index]
+                self.height_map[left_index] = original * factor + target_height * (1.0 - factor)
+            right_index = span_end + offset
+            if right_index < self.grid_width:
+                original = self.height_map[right_index]
+                self.height_map[right_index] = original * factor + target_height * (1.0 - factor)
     def building_hit_test(self, x: float, y: float) -> Optional[Tuple[Building, int]]:
         tolerance = 0.05
         horizontal_pad = 0.15
@@ -275,6 +338,39 @@ class World:
                         return building, idx
                 floor_bottom = floor_top
         return None
+
+    def rubble_hit_test(self, x: float, y: float) -> Optional[RubbleSegment]:
+        tolerance = 0.05
+        for segment in self.rubble_segments:
+            if segment.destroyed:
+                continue
+            if segment.left <= x <= segment.right:
+                top = min(segment.top, segment.base)
+                bottom = max(segment.top, segment.base)
+                if top - tolerance <= y <= bottom + tolerance:
+                    return segment
+        return None
+
+    def is_column_blocked(self, column: int, *, include_rubble: bool = True) -> bool:
+        probe = column + 0.5
+        for building in self.buildings:
+            if building.collapsed:
+                continue
+            if building.left - 0.05 <= probe <= building.right + 0.05:
+                if building.first_intact_floor_index() is not None:
+                    return True
+        if include_rubble:
+            for segment in self.rubble_segments:
+                if segment.destroyed:
+                    continue
+                if segment.left - 0.05 <= probe <= segment.right + 0.05 and segment.height > 0.1:
+                    return True
+        return False
+
+    def damage_rubble(self, segment: RubbleSegment, amount: int) -> None:
+        if segment.destroyed:
+            return
+        segment.damage(amount)
 
     def schedule_building_collapse(self, building: Building, delay: float = 0.0) -> None:
         if building.collapsed:
@@ -312,6 +408,24 @@ class World:
         center = (building.left + building.right) * 0.5
         radius = max(1.2, width * 0.8)
         self.carve_circle(center, building.base, radius)
+        segments = max(1, int(round(width / 2.2)))
+        segment_width = width / segments if segments > 0 else width
+        for idx in range(segments):
+            seg_left = building.left + idx * segment_width
+            seg_right = building.left + (idx + 1) * segment_width
+            height = max(0.6, random.uniform(0.8, 1.9))
+            hp = random.randint(35, 60)
+            segment = RubbleSegment(
+                id=self._next_rubble_id(),
+                left=seg_left,
+                right=seg_right,
+                base=building.base,
+                height=height,
+                initial_height=height,
+                max_hp=hp,
+                hp=hp,
+            )
+            self.rubble_segments.append(segment)
 
     # ------------------------------------------------------------------
     # Queries

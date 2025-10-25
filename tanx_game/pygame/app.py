@@ -25,6 +25,7 @@ from tanx_game.pygame.menu_controller import MenuController, MenuDefinition, Men
 from tanx_game.pygame.renderer import (
     draw_background,
     draw_aim_indicator,
+    draw_rubble,
     draw_buildings,
     draw_debris,
     draw_explosions,
@@ -88,6 +89,10 @@ class PygameTanx:
             {"key": "urban", "label": "Urban Conflict"},
         ]
         self._terrain_style_index = 0
+        self._terrain_descriptions = {
+            "classic": "Classic Hills: rolling procedural terrain ideal for long-range duels.",
+            "urban": "Urban Conflict: dense city blocks with destructible buildings and rubble cover.",
+        }
 
         self.effects = EffectsSystem(
             cell_size=self.cell_size,
@@ -388,6 +393,10 @@ class PygameTanx:
         style = self._terrain_styles[self._terrain_style_index]
         return f"Map Style: {style['label']}"
 
+    def _terrain_style_description(self) -> str:
+        style_key = self._terrain_styles[self._terrain_style_index]["key"]
+        return self._terrain_descriptions.get(style_key, "")
+
     @property
     def terrain_style(self) -> str:
         return self._terrain_styles[self._terrain_style_index]["key"]
@@ -408,7 +417,11 @@ class PygameTanx:
         if self._terrain_style_index != current:
             style = self._terrain_styles[self._terrain_style_index]
             if self.state == "settings_menu":
-                self.menu.set_message(f"Map style set to {style['label']}")
+                description = self._terrain_descriptions.get(style["key"], "")
+                message = f"Map style set to {style['label']}"
+                if description:
+                    message = f"{message}\n{description}"
+                self.menu.set_message(message)
                 self._update_settings_menu_options()
             self._debug(f"Terrain style changed to {style['key']} ({style['label']})")
             self._save_user_settings()
@@ -509,6 +522,11 @@ class PygameTanx:
 
     def _action_open_settings(self) -> None:
         self._activate_menu("settings_menu")
+        desc = self._terrain_style_description()
+        if desc:
+            self.menu.set_message(f"{self._settings_instructions}\n{desc}")
+        else:
+            self.menu.set_message(self._settings_instructions)
 
     def _action_settings_back(self) -> None:
         message = None
@@ -525,6 +543,11 @@ class PygameTanx:
     def _action_keybindings_back(self) -> None:
         self.keybindings.rebinding_target = None
         self._activate_menu("settings_menu")
+        desc = self._terrain_style_description()
+        if desc:
+            self.menu.set_message(f"{self._settings_instructions}\n{desc}")
+        else:
+            self.menu.set_message(self._settings_instructions)
 
     def _action_reset_keybindings(self) -> None:
         self.menu.set_message(self.keybindings.reset_to_defaults())
@@ -641,16 +664,21 @@ class PygameTanx:
 
     def _update(self, dt: float) -> None:
         self.effects.update(dt, self.logic.world)
-        collapsed = self.logic.world.update_collapsing_buildings(dt)
-        if collapsed:
-            collapse_msg = "Building collapsed!"
-            if self.session.message:
-                self.session.message = f"{collapse_msg} {self.session.message}"
-            else:
-                self.session.message = collapse_msg
-        for building in collapsed:
+        collapsed_buildings = self.logic.world.update_collapsing_buildings(dt)
+        collapse_events: List[tuple[List[tuple[Tank, int]], List[Tank]]] = []
+        for building in collapsed_buildings:
+            affected, fatalities = self.logic.handle_building_collapse(building)
+            collapse_events.append((affected, fatalities))
             if self.debug:
-                self._debug(f"Building {building.id} collapsed at x=({building.left:.1f},{building.right:.1f})")
+                self._debug(
+                    f"Building {building.id} collapsed at x=({building.left:.1f},{building.right:.1f})"
+                )
+                if affected:
+                    for tank, damage in affected:
+                        self._debug(f"  {tank.name} took {damage} collapse damage (hp={int(tank.hp)})")
+                if fatalities:
+                    names = ", ".join(tank.name for tank in fatalities)
+                    self._debug(f"  Fatalities: {names}")
             self.effects.spawn_dust_column(
                 (
                     (building.left + building.right) * 0.5,
@@ -658,6 +686,8 @@ class PygameTanx:
                 ),
                 scale=max(1.0, building.width * 0.4),
             )
+        for affected, fatalities in collapse_events:
+            self.session.on_building_collapse(affected, fatalities)
         power_finished = self.superpowers.update(dt)
         if power_finished and self.session.superpower_active_player is not None:
             self.session.complete_superpower()
@@ -706,6 +736,12 @@ class PygameTanx:
                 self._debug(
                     f"Projectile hit building {building.id} floor={floor_idx} status={status} unstable={building.unstable}"
                 )
+            elif self.debug and resolved.hit_rubble is not None:
+                segment = resolved.hit_rubble
+                status = "destroyed" if segment.destroyed else f"{segment.hp}/{segment.max_hp}"
+                self._debug(
+                    f"Projectile hit rubble {segment.id} status={status}"
+                )
         if resolved and resolved.impact_x is not None and resolved.impact_y is not None:
             scale = 1.0
             if resolved.fatal_hit:
@@ -722,6 +758,7 @@ class PygameTanx:
         target_surface.fill((0, 0, 0))
         draw_background(self)
         draw_world(self)
+        draw_rubble(self)
         draw_buildings(self)
         draw_tanks(self)
         draw_aim_indicator(self)

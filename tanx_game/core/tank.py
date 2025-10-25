@@ -61,6 +61,8 @@ class Tank:
         target_x = self.x + direction * self.move_distance
         if not 0 <= target_x < world.width:
             return False
+        if world.is_column_blocked(target_x, include_rubble=False):
+            return False
         surface = self.stand_y(world, target_x)
         if surface is None or surface < 0:
             return False

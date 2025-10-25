@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from tanx_game.core.tank import Tank
-from tanx_game.core.world import Building, TerrainSettings, World
+from tanx_game.core.world import Building, RubbleSegment, TerrainSettings, World
 
 
 @dataclass
@@ -24,6 +24,7 @@ class ShotResult:
     fatal_tank: Optional[Tank] = None
     hit_building: Optional[Building] = None
     hit_building_floor: Optional[int] = None
+    hit_rubble: Optional[RubbleSegment] = None
 
 
 class Game:
@@ -57,7 +58,11 @@ class Game:
         x = start
         while 0 <= x < self.world.width:
             surface = self.world.surface_y(x)
-            if surface is not None and surface >= 0:
+            if (
+                surface is not None
+                and surface >= 0
+                and not self.world.is_column_blocked(x)
+            ):
                 return x, surface
             x += step
         raise RuntimeError("Failed to find spawn positions for tanks")
@@ -106,6 +111,7 @@ class Game:
         hit_tank: Optional[Tank] = None
         hit_building: Optional[Building] = None
         hit_floor: Optional[int] = None
+        hit_rubble: Optional[RubbleSegment] = None
         impact_x: Optional[float] = None
         impact_y: Optional[float] = None
         dt = self.projectile_time_step
@@ -123,6 +129,11 @@ class Game:
             building_hit = self.world.building_hit_test(x, y)
             if building_hit:
                 hit_building, hit_floor = building_hit
+                impact_x, impact_y = x, y
+                break
+            rubble_hit = self.world.rubble_hit_test(x, y)
+            if rubble_hit:
+                hit_rubble = rubble_hit
                 impact_x, impact_y = x, y
                 break
             for tank in self.tanks:
@@ -144,6 +155,7 @@ class Game:
             path=path,
             hit_building=hit_building,
             hit_building_floor=hit_floor,
+            hit_rubble=hit_rubble,
         )
         if apply_effects:
             self.apply_shot_effects(result)
@@ -153,6 +165,8 @@ class Game:
         impact_x, impact_y = result.impact_x, result.impact_y
         if result.hit_building is not None and impact_x is not None and impact_y is not None:
             self._apply_building_damage(result)
+        elif result.hit_rubble is not None and impact_x is not None and impact_y is not None:
+            self._apply_rubble_damage(result)
         elif impact_x is not None and impact_y is not None and result.hit_tank is None:
             self.world.carve_circle(impact_x, impact_y, self.explosion_radius)
         fatal_tank: Optional[Tank] = None
@@ -185,6 +199,12 @@ class Game:
             return
         floor.damage(self.damage)
         if floor.destroyed:
+            if floor_idx < len(building.floors) - 1:
+                for upper_idx in range(floor_idx + 1, len(building.floors)):
+                    upper_floor = building.floors[upper_idx]
+                    if not upper_floor.destroyed:
+                        upper_floor.hp = 0
+                        upper_floor.destroyed = True
             intact_remaining = building.first_intact_floor_index()
             if intact_remaining is None:
                 self.world.schedule_building_collapse(building, delay=0.8)
@@ -192,6 +212,39 @@ class Game:
                 building.unstable = True
                 if floor_idx == 0:
                     self.world.schedule_building_collapse(building, delay=1.2)
+
+    def _apply_rubble_damage(self, result: ShotResult) -> None:
+        segment = result.hit_rubble
+        if segment is None:
+            return
+        self.world.damage_rubble(segment, self.damage)
+
+    def handle_building_collapse(self, building: Building) -> tuple[List[tuple[Tank, int]], List[Tank]]:
+        affected: List[tuple[Tank, int]] = []
+        fatalities: List[Tank] = []
+        center = (building.left + building.right) * 0.5
+        half_span = building.width * 0.5
+        influence = half_span + 1.5
+        base_damage = max(self.damage, int(self.damage * (1.1 + 0.15 * len(building.floors))))
+        for tank in self.tanks:
+            if not tank.alive:
+                continue
+            horizontal = abs(tank.x - center)
+            if horizontal > influence:
+                continue
+            falloff = max(0.25, 1.0 - (horizontal / max(influence, 0.001)))
+            damage = max(1, int(base_damage * falloff))
+            before_hp = int(tank.hp)
+            tank.take_damage(damage)
+            dealt = max(0, before_hp - int(tank.hp))
+            if dealt > 0:
+                affected.append((tank, dealt))
+            if before_hp > 0 and not tank.alive:
+                fatalities.append(tank)
+        for tank in self.tanks:
+            if tank.alive:
+                self.settle_tank(tank)
+        return affected, fatalities
 
     def _apply_splash_damage(self, impact_x: float, impact_y: float) -> Optional[Tank]:
         radius = self.explosion_radius

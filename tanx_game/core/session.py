@@ -127,6 +127,8 @@ class GameSession:
             self.message = f"Direct hit on {result.hit_tank.name}!"
         elif result and result.hit_building:
             self.message = "Shot hammered a building."
+        elif result and result.hit_rubble:
+            self.message = "Shot slammed into rubble."
         elif result and result.impact_x is not None:
             self.message = "Shot impacted the terrain."
         else:
@@ -160,6 +162,31 @@ class GameSession:
                 f"Next: {self.game.tanks[self.current_player].name}'s turn"
             )
         self.winner_delay = 0.0
+
+    # ------------------------------------------------------------------
+    def on_building_collapse(
+        self,
+        affected: List[tuple[Tank, int]],
+        fatalities: List[Tank],
+    ) -> None:
+        if fatalities:
+            names = ", ".join(tank.name for tank in fatalities)
+            collapse_message = f"Building collapse crushed {names}!"
+        elif affected:
+            names = ", ".join(tank.name for tank, _ in affected)
+            collapse_message = f"{names} caught in the building collapse!"
+        else:
+            collapse_message = "A building collapsed."
+        self.check_victory()
+        if self.winner:
+            winner_notice = self.message
+            self.message = f"{collapse_message} {winner_notice}"
+            self.winner_delay = 2.0
+        else:
+            self.winner_delay = 0.0
+            self.message = (
+                f"{collapse_message} Next: {self.game.tanks[self.current_player].name}'s turn"
+            )
 
     # ------------------------------------------------------------------
     # Internal helpers

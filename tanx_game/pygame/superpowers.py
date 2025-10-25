@@ -39,6 +39,14 @@ class SuperpowerBase:
         y_px = self.offset_y + y_world * self.cell
         return x_px, y_px
 
+    def _surface_height(self, x_world: float, y_world: float) -> Optional[float]:
+        world = self.app.logic.world
+        rubble = world.rubble_hit_test(x_world, y_world)
+        if rubble is not None:
+            return rubble.top
+        ground = world.ground_height(x_world)
+        return ground
+
     def apply_damage(
         self,
         x_world: float,
@@ -46,6 +54,9 @@ class SuperpowerBase:
         damage_scale: float = 1.0,
         explosion_scale: float = 1.0,
     ) -> None:
+        surface_height = self._surface_height(x_world, y_world)
+        if surface_height is not None:
+            y_world = surface_height
         self.app._apply_superpower_damage(x_world, y_world, damage_scale, explosion_scale)
 
 
@@ -101,13 +112,15 @@ class BomberPower(SuperpowerBase):
             bomb["x"] += bomb["vx"] * dt
             bomb["y"] += bomb["vy"] * dt
             x_world, y_world = self.screen_to_world(bomb["x"], bomb["y"])
-            ground_height = self.app.logic.world.ground_height(x_world)
+            world = self.app.logic.world
+            ground_height = world.ground_height(x_world)
             if ground_height is None:
                 continue
-            if y_world >= ground_height:
+            rubble = world.rubble_hit_test(x_world, y_world)
+            if y_world >= ground_height or rubble is not None:
                 self.apply_damage(
                     x_world,
-                    ground_height,
+                    ground_height if rubble is None else rubble.top,
                     damage_scale=0.85,
                     explosion_scale=1.2,
                 )

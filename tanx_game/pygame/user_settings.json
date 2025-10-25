@@ -21,5 +21,12 @@
     }
   ],
   "terrain_style": "urban",
+  "volume": {
+    "ambient": 0.8,
+    "effects": 0.85,
+    "master": 1.0,
+    "ui": 0.8
+  },
+  "weather": "rain",
   "windowed_fullscreen": false
 }

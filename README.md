@@ -5,6 +5,13 @@ pygame-powered window. Two tanks face off on a procedurally generated,
 destructible landscape. Take turns to move, adjust your turret, and fire shells
 until your opponent reaches zero health.
 
+### Quick Feature Highlights
+
+* Weather-aware battlefields (clear skies, rain, snowfall) with parallax skyline and moving clouds.
+* Fully destructible urban structures that collapse into physics-driven rubble and persistent smoke.
+* Enhanced tank presentation: suspension bounce, turret recoil, muzzle flashes, and camera shake.
+* Audio-ready engine with configurable volume buckets, ambient loops, and impact SFX triggers.
+
 ## Requirements
 
 * Python 3.9+

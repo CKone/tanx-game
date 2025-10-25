@@ -27,6 +27,9 @@ class Tank:
     power_step: float = 0.1
     super_power: float = 0.0
     last_command: Optional[str] = field(default=None, init=False)
+    suspension_phase: float = field(default=0.0, init=False)
+    suspension_amplitude: float = field(default=0.25, init=False)
+    recoil_timer: float = field(default=0.0, init=False)
 
     def clamp_turret(self) -> None:
         self.turret_angle = max(self.min_angle, min(self.max_angle, self.turret_angle))

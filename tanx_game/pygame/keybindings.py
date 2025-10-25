@@ -103,6 +103,24 @@ class KeybindingManager:
         if self.rebinding_target is None:
             return "Select an action to rebind."
         player_idx, field = self.rebinding_target
+        current_value = getattr(self.player_bindings[player_idx], field)
+        if key == current_value:
+            self.rebinding_target = None
+            label = self._field_label(field)
+            return (
+                f"Player {player_idx + 1} {label} remains bound to {self.format_key(key)}"
+            )
+        for bind_idx, bindings in enumerate(self.player_bindings):
+            for _, other_field in self.binding_fields:
+                if bind_idx == player_idx and other_field == field:
+                    continue
+                if getattr(bindings, other_field) == key:
+                    other_label = self._field_label(other_field)
+                    return (
+                        f"{self.format_key(key)} already bound to "
+                        f"Player {bind_idx + 1} {other_label}. "
+                        "Choose another key or press Esc to cancel."
+                    )
         setattr(self.player_bindings[player_idx], field, key)
         self.rebinding_target = None
         label = self._field_label(field)

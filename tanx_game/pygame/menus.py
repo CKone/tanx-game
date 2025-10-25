@@ -18,7 +18,7 @@ def draw_ui(app) -> None:
     overlay.fill((10, 12, 20, 235))
     surface.blit(overlay, (0, panel_top))
 
-    stats_top = panel_top + 12
+    base_stats_top = panel_top + 12
     section_padding = 20
     bar_height = 16
     bar_spacing = 6
@@ -100,8 +100,37 @@ def draw_ui(app) -> None:
         value_rect = value_surface.get_rect(right=bar_rect.right - 8, centery=bar_rect.centery)
         surface.blit(value_surface, value_rect)
 
+    message = app.message or ""
+    message_bottom = panel_top + 6
+    if message:
+        message_surface = app.font_regular.render(message, True, text_color)
+        message_rect = message_surface.get_rect()
+        message_rect.midtop = (width // 2, panel_top + 8)
+        message_rect.clamp_ip(pygame.Rect(0, panel_top, width, panel_height))
+        surface.blit(message_surface, message_rect)
+        message_bottom = message_rect.bottom
+
+    stats_top = max(base_stats_top, message_bottom + 12)
+
+    instruction_parts = [
+        "P1: A/D move, W/S aim, Space fire, Q/E power",
+        "P2: ←/→ move, ↑/↓ aim, Enter fire, [,/.] power",
+        "Superpowers: B bomber, N squad, M scope",
+        "Hold Shift: coarse aim & power",
+        "Esc: pause menu",
+    ]
+    if app.cheat_enabled:
+        instruction_parts.append("F1: cheat console")
+    instructions_text = "   |   ".join(instruction_parts)
+    instructions_surface = app.font_small.render(instructions_text, True, text_muted)
+    instructions_rect = instructions_surface.get_rect(centerx=width // 2)
+    default_instructions_top = panel_top + panel_height - instructions_surface.get_height() - 6
+    instructions_rect.top = default_instructions_top
+    allowed_bar_bottom = default_instructions_top - 12
+
     tanks = list(app.logic.tanks)
     if not tanks:
+        surface.blit(instructions_surface, instructions_rect)
         return
 
     section_width = width // len(tanks)
@@ -118,8 +147,23 @@ def draw_ui(app) -> None:
         dial_radius = int(dial_radius)
         name_surface = app.font_regular.render(tank.name, True, text_color)
         name_y = stats_top
-        name_x = inner_left if idx == 0 else max(inner_left, inner_right - name_surface.get_width())
+        if idx == 0:
+            name_x = inner_left
+        else:
+            name_x = max(inner_left, inner_right - name_surface.get_width())
         surface.blit(name_surface, (name_x, name_y))
+
+        match_scores = getattr(app, "match_scores", [0] * len(tanks))
+        wins_value = match_scores[idx] if idx < len(match_scores) else 0
+        wins_text = f"Wins: {wins_value}"
+        score_surface = app.font_small.render(wins_text, True, text_muted)
+        if idx == 0:
+            score_x = inner_left
+        else:
+            score_x = max(inner_left, inner_right - score_surface.get_width())
+        score_y = name_y + name_surface.get_height() + 4
+        surface.blit(score_surface, (score_x, score_y))
+        text_block_bottom = score_y + score_surface.get_height()
 
         center_layout = False
         if idx == 0:
@@ -160,10 +204,21 @@ def draw_ui(app) -> None:
 
         bar_total_height = bar_height * 3 + bar_spacing * 2
         if center_layout:
-            dial_center_y = name_y + name_surface.get_height() + dial_radius + 2
+            dial_center_y = text_block_bottom + dial_radius + 6
+            min_dial_center = dial_center_y
+            max_dial_center = allowed_bar_bottom - bar_total_height - dial_radius - 10
+            if max_dial_center >= min_dial_center:
+                dial_center_y = min(max(dial_center_y, min_dial_center), max_dial_center)
+            else:
+                dial_center_y = min_dial_center
             bar_top = dial_center_y + dial_radius + 10
         else:
-            bar_top = name_y + name_surface.get_height() + 2
+            base_bar_top = text_block_bottom + 6
+            bar_top = base_bar_top
+            max_bar_top = allowed_bar_bottom - bar_total_height
+            if max_bar_top >= base_bar_top:
+                bar_top = min(bar_top, max_bar_top)
+            bar_top = max(bar_top, base_bar_top)
             dial_center_y = bar_top + bar_total_height // 2 - 6
 
         bar_rects = []
@@ -212,26 +267,6 @@ def draw_ui(app) -> None:
         )
 
         draw_angle_dial((dial_center_x, dial_center_y), dial_radius, tank, idx)
-
-    message = app.message or ""
-    if message:
-        message_surface = app.font_regular.render(message, True, text_color)
-        message_rect = message_surface.get_rect(center=(width // 2, panel_top + 28))
-        surface.blit(message_surface, message_rect)
-
-    instruction_parts = [
-        "P1: A/D move, W/S aim, Space fire, Q/E power",
-        "P2: ←/→ move, ↑/↓ aim, Enter fire, [,/.] power",
-        "Superpowers: B bomber, N squad, M scope",
-        "Hold Shift: coarse aim & power",
-        "Esc: pause menu",
-    ]
-    if app.cheat_enabled:
-        instruction_parts.append("F1: cheat console")
-    instructions_text = "   |   ".join(instruction_parts)
-    instructions_surface = app.font_small.render(instructions_text, True, text_muted)
-    instructions_rect = instructions_surface.get_rect(centerx=width // 2)
-    instructions_rect.bottom = panel_top + panel_height - 6
     surface.blit(instructions_surface, instructions_rect)
 
     if app.cheat_enabled and app.cheat_menu_visible:

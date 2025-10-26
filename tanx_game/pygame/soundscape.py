@@ -37,26 +37,26 @@ class Soundscape:
         }
         self._missing_assets_reported: set[str] = set()
         self._ambient_channel: Optional[pygame.mixer.Channel] = None
+        self._status_message: Optional[str] = None
+        self._active_driver: Optional[str] = None
+        self._init_attempts: int = 0
+        self._init_params = {
+            "frequency": frequency,
+            "size": size,
+            "channels": channels,
+            "buffer": buffer,
+        }
         self._ensure_base_path()
 
         if not enabled:
             return
 
-        try:
-            if not pygame.mixer.get_init():
-                pygame.mixer.init(
-                    frequency=frequency, size=size, channels=channels, buffer=buffer
-                )
-            self._mixer_ready = True
-            self._ambient_channel = pygame.mixer.Channel(7)
-        except pygame.error:
-            # Mixer failed (e.g., no audio device). Run silently.
-            self.enabled = False
-            self._mixer_ready = False
+        self._initialise_mixer()
 
     # ------------------------------------------------------------------
     # Loading & playback
     def load(self, key: str, filename: str, *, category: str = "effects") -> None:
+        self.ensure_ready()
         if not self._mixer_ready:
             return
         path = self.base_path / filename
@@ -79,6 +79,7 @@ class Soundscape:
         self._categories[key] = category
 
     def play(self, key: str, *, loops: int = 0, volume: Optional[float] = None) -> None:
+        self.ensure_ready()
         if not self._mixer_ready:
             return
         sound = self._registry.get(key)
@@ -92,6 +93,7 @@ class Soundscape:
         sound.play(loops=loops)
 
     def play_loop(self, key: str) -> None:
+        self.ensure_ready()
         if not self._mixer_ready:
             return
         sound = self._registry.get(key)
@@ -117,6 +119,7 @@ class Soundscape:
     # ------------------------------------------------------------------
     # Volume management
     def set_volume(self, category: str, value: float) -> None:
+        self.ensure_ready()
         self._volumes[category] = max(0.0, min(1.0, value))
         if (
             category in {"master", "ambient"}
@@ -139,12 +142,103 @@ class Soundscape:
         return self._volumes.get(category, 1.0)
 
     # ------------------------------------------------------------------
+    def ensure_ready(self) -> None:
+        if self._mixer_ready or not self.enabled:
+            return
+        self._initialise_mixer()
+
     def _ensure_base_path(self) -> None:
         if not self.base_path.exists():
             try:
                 os.makedirs(self.base_path, exist_ok=True)
             except OSError:
                 pass
+
+    def _initialise_mixer(self) -> None:
+        if self._mixer_ready or not self.enabled:
+            return
+        self._init_attempts += 1
+        original_driver = os.environ.get("SDL_AUDIODRIVER")
+        candidates = self._candidate_drivers(original_driver)
+        last_error: Optional[str] = None
+
+        for driver in candidates:
+            try:
+                self._apply_driver_env(driver)
+                pygame.mixer.quit()
+                pygame.mixer.init(**self._init_params)
+            except pygame.error as exc:
+                last_error = str(exc)
+                continue
+            else:
+                self._mixer_ready = True
+                self._ambient_channel = pygame.mixer.Channel(7)
+                actual_driver = driver if driver is not None else os.environ.get(
+                    "SDL_AUDIODRIVER"
+                )
+                self._active_driver = actual_driver
+                if actual_driver == "dummy":
+                    self._set_status_message(
+                        "Audio device unavailable; running with SDL 'dummy' driver (no sound output). "
+                        "Check your sound settings or set SDL_AUDIODRIVER."
+                    )
+                else:
+                    self._set_status_message(None)
+                break
+
+        self._restore_driver_env(original_driver)
+
+        if not self._mixer_ready:
+            self._active_driver = None
+            reason = f": {last_error}" if last_error else ""
+            self._set_status_message(
+                "Audio initialisation failed"
+                f"{reason}. Sound remains muted. Connect an audio device or set SDL_AUDIODRIVER."
+            )
+
+    def _candidate_drivers(self, original: Optional[str]) -> list[Optional[str]]:
+        if original:
+            return [original]
+        ordered: list[Optional[str]] = [
+            None,
+            "pulse",
+            "pipewire",
+            "alsa",
+            "coreaudio",
+            "directsound",
+            "wasapi",
+            "winmm",
+            "dsp",
+            "dummy",
+        ]
+        seen: set[Optional[str]] = set()
+        result: list[Optional[str]] = []
+        for driver in ordered:
+            if driver in seen:
+                continue
+            seen.add(driver)
+            result.append(driver)
+        if result[-1] != "dummy":
+            result.append("dummy")
+        return result
+
+    def _apply_driver_env(self, driver: Optional[str]) -> None:
+        if driver is None:
+            if "SDL_AUDIODRIVER" in os.environ:
+                del os.environ["SDL_AUDIODRIVER"]
+        else:
+            os.environ["SDL_AUDIODRIVER"] = driver
+
+    def _restore_driver_env(self, original: Optional[str]) -> None:
+        if original is None:
+            os.environ.pop("SDL_AUDIODRIVER", None)
+        else:
+            os.environ["SDL_AUDIODRIVER"] = original
+
+    def _set_status_message(self, message: Optional[str]) -> None:
+        if message and message != self._status_message:
+            print(f"[Soundscape] {message}")
+        self._status_message = message
 
     def _current_ambient_key(self) -> Optional[str]:
         if not self._ambient_channel:
@@ -162,6 +256,10 @@ class Soundscape:
             return
         self._missing_assets_reported.add(filename)
         print(f"[Soundscape] Missing audio asset '{filename}', using placeholder tone.")
+
+    @property
+    def status_message(self) -> Optional[str]:
+        return self._status_message
 
     def _create_placeholder_sound(
         self, key: str, category: str

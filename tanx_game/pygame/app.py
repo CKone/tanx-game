@@ -143,6 +143,9 @@ class PygameTanx:
             "ui": 0.8,
         }
         self.soundscape = Soundscape(self._audio_path)
+        self._audio_status_last: Optional[str] = self.soundscape.status_message
+        self._audio_notice_menu_pending: bool = bool(self._audio_status_last)
+        self._audio_notice_session_pending: bool = bool(self._audio_status_last)
         stored_volume = self._user_settings.get("volume")
         if isinstance(stored_volume, dict):
             for key in self._volume_settings:
@@ -202,6 +205,8 @@ class PygameTanx:
         self._register_menus()
 
         self._setup_new_match(player_one, player_two, terrain_settings, seed)
+        self._refresh_audio_status()
+        self._maybe_apply_audio_notice()
 
         if self._user_settings.get("windowed_fullscreen") and not self.display.windowed_fullscreen:
             self._enter_windowed_fullscreen()
@@ -591,6 +596,8 @@ class PygameTanx:
             settings,
             settings.seed,
         )
+        self._refresh_audio_status()
+        self._maybe_apply_audio_notice()
         if start_in_menu:
             self._activate_menu("main_menu", message=message)
         else:
@@ -806,6 +813,7 @@ class PygameTanx:
 
 
     def _activate_menu(self, name: str, message: Optional[str] = None) -> None:
+        message = self._menu_message_with_notice(name, message)
         self.state = name
         self.cheat_menu_visible = False
         self.menu.activate(name, message=message)
@@ -879,6 +887,55 @@ class PygameTanx:
     def _cancel_binding(self) -> None:
         self.menu.set_message(self.keybindings.cancel_rebinding())
         self._update_keybinding_menu_options()
+
+    def _refresh_audio_status(self) -> None:
+        status = self.soundscape.status_message
+        if status == self._audio_status_last:
+            return
+        previous = self._audio_status_last
+        self._audio_status_last = status
+        self._audio_notice_menu_pending = bool(status)
+        self._audio_notice_session_pending = bool(status)
+        if (
+            status is None
+            and previous
+            and hasattr(self, "session")
+            and self.session.message == previous
+        ):
+            self.session.message = ""
+
+    def _maybe_apply_audio_notice(self) -> None:
+        if self._audio_notice_session_pending and self._audio_status_last:
+            self.message = self._audio_status_last
+            self._audio_notice_session_pending = False
+
+    def _menu_message_with_notice(
+        self, name: str, message: Optional[str]
+    ) -> Optional[str]:
+        if name != "main_menu":
+            return message
+        self._refresh_audio_status()
+        notice = self._audio_status_last if self._audio_notice_menu_pending else None
+        if notice and message:
+            if notice not in message:
+                message = f"{message}\n\n{notice}"
+            self._audio_notice_menu_pending = False
+            return message
+        if message is not None:
+            return message
+        default_text = None
+        definition = self.menu.definitions.get("main_menu")
+        if definition and definition.default_message:
+            default_text = definition.default_message()
+        parts: List[str] = []
+        if default_text:
+            parts.append(default_text)
+        if notice:
+            parts.append(notice)
+            self._audio_notice_menu_pending = False
+        if not parts:
+            return None
+        return "\n\n".join(parts)
 
     def _trigger_superpower(self, kind: str) -> bool:
         if self.superpowers.is_active() or self.session.is_animating_projectile():
@@ -982,6 +1039,8 @@ class PygameTanx:
                 self.input.process_event(event)
 
     def _update(self, dt: float) -> None:
+        self._refresh_audio_status()
+        self._maybe_apply_audio_notice()
         self.effects.update(dt, self.logic.world)
         self.effects.update_weather(dt, self.logic.world.width, self.logic.world.height)
         self._time_elapsed += dt

@@ -31,6 +31,18 @@ python main.py --cheat
 
 A window will open with the battlefield and UI overlay.
 
+### Audio Troubleshooting
+
+Tanx now cycles through common SDL audio backends on startup (PulseAudio, PipeWire, ALSA, CoreAudio, DirectSound, WASAPI, WinMM, and finally the silent `dummy` fallback). If no real device is available, the main menu displays a warning and the mixer runs silently.
+
+To explicitly select a backend, launch with `SDL_AUDIODRIVER` set, e.g.:
+
+```bash
+SDL_AUDIODRIVER=pulse python main.py
+```
+
+Once a working device appears, the client retries automatically and clears the warning; reconnecting a headset is usually enough.
+
 ## Controls
 
 * Player 1 – `A`/`D` move, `W`/`S` aim, `Space` fire, `Q`/`E` tweak shot power.

@@ -13,6 +13,7 @@
   - Use `pygame.mixer` with 44.1 kHz stereo; keep channels pooled to avoid clipping.
   - Soundscape manager now wraps mixer with category-aware playback and ambient loops; extend with ducking and cross-fades.
   - Procedural placeholder tones cover missing assets so CI and local dev can exercise the mixer without shipping heavy files.
+  - Startup now probes multiple SDL audio drivers (PulseAudio, PipeWire, ALSA, CoreAudio, DirectSound, WASAPI, WinMM, dsp, dummy) and surfaces a UI warning if it falls back to the silent driver.
   - Allow weather + match style to influence mix (e.g., rain muffles high frequencies, urban adds distant sirens).
   - Add settings menu sliders for master/SFX/ambient volume plus a mute toggle persisted in user settings.
   - Settings menu options now respond to ←/→ for per-category volume adjustments and play UI navigation audio cues.

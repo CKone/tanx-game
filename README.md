@@ -54,6 +54,21 @@ python -m pygbag --build main.py --bundle --outdir build/web
 This produces an `index.html` plus supporting assets under `build/web`, which
 the release workflow zips as `tanx-web.zip` for GitHub Releases.
 
+## Versioning & releases
+
+The project follows Semantic Versioning. The authoritative version lives in
+`tanx_game/__init__.py`. Use `bump2version` to bump versions, commit, and tag in
+one step:
+
+```bash
+bump2version patch   # or minor / major
+git push --follow-tags
+```
+
+Tag pushes (e.g., `v1.0.1`) automatically trigger the `Release` workflow to
+publish updated desktop and web builds. See `docs/releases.md` for the full
+checklist.
+
 ### Audio Troubleshooting
 
 Tanx now cycles through common SDL audio backends on startup (PulseAudio, PipeWire, ALSA, CoreAudio, DirectSound, WASAPI, WinMM, and finally the silent `dummy` fallback). If no real device is available, the main menu displays a warning and the mixer runs silently.

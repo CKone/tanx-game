@@ -1,5 +1,7 @@
 """Top-level package for the Tanx tank battle game."""
 
+__version__ = "1.0.0"
+
 from tanx_game.core import (
     Game,
     GameSession,
@@ -19,6 +21,8 @@ __all__ = [
     "TerrainSettings",
     "World",
 ]
+
+__all__.append("__version__")
 
 try:
     from tanx_game.pygame import PygameTanx, run_pygame  # type: ignore[misc]

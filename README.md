@@ -5,6 +5,13 @@ pygame-powered window. Two tanks face off on a procedurally generated,
 destructible landscape. Take turns to move, adjust your turret, and fire shells
 until your opponent reaches zero health.
 
+### Quick Feature Highlights
+
+* Weather-aware battlefields (clear skies, rain, snowfall) with parallax skyline and moving clouds.
+* Fully destructible urban structures that collapse into physics-driven rubble and persistent smoke.
+* Enhanced tank presentation: suspension bounce, turret recoil, muzzle flashes, and camera shake.
+* Audio-ready engine with configurable volume buckets, ambient loops, and impact SFX triggers.
+
 ## Requirements
 
 * Python 3.9+
@@ -23,6 +30,18 @@ python main.py --cheat
 ```
 
 A window will open with the battlefield and UI overlay.
+
+### Audio Troubleshooting
+
+Tanx now cycles through common SDL audio backends on startup (PulseAudio, PipeWire, ALSA, CoreAudio, DirectSound, WASAPI, WinMM, and finally the silent `dummy` fallback). If no real device is available, the main menu displays a warning and the mixer runs silently.
+
+To explicitly select a backend, launch with `SDL_AUDIODRIVER` set, e.g.:
+
+```bash
+SDL_AUDIODRIVER=pulse python main.py
+```
+
+Once a working device appears, the client retries automatically and clears the warning; reconnecting a headset is usually enough.
 
 ## Controls
 

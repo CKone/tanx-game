@@ -218,6 +218,46 @@ class InputHandler:
                 app._change_resolution(1)
                 return
 
+        if app.state == "settings_menu" and app.menu.selection == getattr(app, "settings_style_option_index", -1):
+            if key == pygame.K_LEFT:
+                app._change_terrain_style(-1)
+                return
+            if key == pygame.K_RIGHT:
+                app._change_terrain_style(1)
+                return
+
+        if app.state == "settings_menu" and app.menu.selection == getattr(app, "settings_weather_option_index", -1):
+            if key == pygame.K_LEFT:
+                app._change_weather(-1)
+                return
+            if key == pygame.K_RIGHT:
+                app._change_weather(1)
+                return
+
+        if app.state == "settings_menu":
+            selection = app.menu.selection
+            if selection == getattr(app, "settings_master_volume_option_index", -1):
+                if key == pygame.K_LEFT:
+                    app._adjust_volume("master", -1)
+                    return
+                if key == pygame.K_RIGHT:
+                    app._adjust_volume("master", 1)
+                    return
+            if selection == getattr(app, "settings_effects_volume_option_index", -1):
+                if key == pygame.K_LEFT:
+                    app._adjust_volume("effects", -1)
+                    return
+                if key == pygame.K_RIGHT:
+                    app._adjust_volume("effects", 1)
+                    return
+            if selection == getattr(app, "settings_ambient_volume_option_index", -1):
+                if key == pygame.K_LEFT:
+                    app._adjust_volume("ambient", -1)
+                    return
+                if key == pygame.K_RIGHT:
+                    app._adjust_volume("ambient", 1)
+                    return
+
         if app.state == "keybind_menu":
             if app.keybindings.rebinding_target is not None:
                 if key == pygame.K_ESCAPE:
@@ -230,10 +270,16 @@ class InputHandler:
             return
 
         if key in {pygame.K_UP, pygame.K_w}:
+            previous = app.menu.selection
             app.menu.change_selection(-1)
+            if app.menu.selection != previous:
+                app._play_ui_sound("menu_move")
             return
         if key in {pygame.K_DOWN, pygame.K_s}:
+            previous = app.menu.selection
             app.menu.change_selection(1)
+            if app.menu.selection != previous:
+                app._play_ui_sound("menu_move")
             return
         if key in {pygame.K_RETURN, pygame.K_SPACE, pygame.K_KP_ENTER}:
             app.menu.execute_current()

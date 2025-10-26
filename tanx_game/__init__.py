@@ -1,6 +1,6 @@
 """Top-level package for the Tanx tank battle game."""
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 from tanx_game.core import (
     Game,

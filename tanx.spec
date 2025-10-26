@@ -1,16 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import Tree
+
 block_cipher = None
 
+datas = []
+datas += Tree('assets', prefix='assets')
+datas += Tree('tanx_game/pygame/assets', prefix='tanx_game/pygame/assets')
 
 a = Analysis(
     ['main.py'],
     pathex=['.'],
     binaries=[],
-    datas=[
-        ('assets', 'assets'),
-        ('tanx_game/pygame/assets', 'tanx_game/pygame/assets'),
-    ],
+    datas=datas,
     hiddenimports=['pygame'],
     hookspath=[],
     hooksconfig={},

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import random
+from importlib import resources
 from pathlib import Path
 from typing import List, Optional
 
@@ -134,7 +135,7 @@ class PygameTanx:
             cell_size=self.cell_size,
             ui_height=self.ui_height,
         )
-        self._audio_path = Path(__file__).resolve().parent / "assets" / "audio"
+        self._audio_path = self._resolve_asset_path("audio")
         self._volume_categories: List[str] = ["master", "effects", "ambient"]
         self._volume_settings = {
             "master": 1.0,
@@ -218,6 +219,21 @@ class PygameTanx:
             self._last_regular_settings = TerrainSettings(**vars(self.logic.world.settings))
 
         self._save_user_settings()
+
+    # ------------------------------------------------------------------
+    def _resolve_asset_path(self, *parts: str) -> Path:
+        package = "tanx_game.pygame"
+        try:
+            resource = resources.files(package) / "assets"
+            for part in parts:
+                resource /= part
+            with resources.as_file(resource) as resolved:
+                return Path(resolved)
+        except (FileNotFoundError, ModuleNotFoundError, AttributeError):
+            base = Path(__file__).resolve().parent / "assets"
+            for part in parts:
+                base /= part
+            return base
 
     @property
     def cell_size(self) -> int:

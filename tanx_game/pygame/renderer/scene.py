@@ -11,9 +11,6 @@ import pygame.gfxdraw
 
 from tanx_game.core.game import Game
 from tanx_game.core.tank import Tank
-from tanx_game.pygame.effects import Debris, Particle
-
-
 def _scale_color(color: pygame.Color, factor: float) -> pygame.Color:
     return pygame.Color(
         max(0, min(255, int(color.r * factor))),

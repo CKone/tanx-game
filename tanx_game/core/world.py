@@ -134,7 +134,6 @@ class World:
             self._generate_classic_height_map()
 
     def _generate_classic_height_map(self) -> None:
-        rng = self._rng
         min_h = self.settings.min_height
         max_h = min(self.height - 2, self.settings.max_height)
         span = self.grid_width

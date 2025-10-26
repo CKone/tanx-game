@@ -16,14 +16,14 @@ except ImportError as exc:  # pragma: no cover - depends on runtime environment
     ) from exc
 
 from tanx_game.core.game import Game, ShotResult
-from tanx_game.core.session import GameSession, ProjectileStep
+from tanx_game.core.session import GameSession
 from tanx_game.core.tank import Tank
 from tanx_game.core.world import TerrainSettings
 from tanx_game.pygame.config import load_user_settings, save_user_settings
 from tanx_game.pygame.display import DisplayManager
 from tanx_game.pygame.effects import EffectsSystem
 from tanx_game.pygame.input import InputHandler
-from tanx_game.pygame.keybindings import KeybindingManager, KeyBindings
+from tanx_game.pygame.keybindings import KeybindingManager
 from tanx_game.pygame.menu_controller import MenuController, MenuDefinition, MenuOption
 from tanx_game.pygame.renderer import (
     draw_background,
@@ -684,7 +684,6 @@ class PygameTanx:
         previous = self._weather_index
         self._weather_index = (self._weather_index + direction) % len(self._weather_styles)
         if self._weather_index != previous:
-            entry = self._weather_styles[self._weather_index]
             if self.state == "settings_menu":
                 self._update_settings_menu_options()
                 self._update_settings_message()

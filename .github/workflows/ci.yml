@@ -30,5 +30,27 @@ jobs:
           if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt; fi
           python -m pip install pygame==2.6.1
 
-      - name: Run test suite
-        run: python -m pytest --maxfail=1 --disable-warnings
+      - name: Run static analysis
+        run: |
+          PYTHONPATH=.:$PYTHONPATH \
+          python -m ruff check tanx_game tests
+          PYTHONPATH=.:$PYTHONPATH \
+          python -m mypy tanx_game/core --ignore-missing-imports
+
+      - name: Run smoke tests
+        run: |
+          PYTHONPATH=.:$PYTHONPATH \
+          python -m pytest --maxfail=1 --disable-warnings -m smoke
+
+      - name: Run unit tests
+        run: |
+          PYTHONPATH=.:$PYTHONPATH \
+          python -m pytest --maxfail=1 --disable-warnings -m "not (e2e or smoke)"
+
+      - name: Run end-to-end playthrough
+        run: |
+          PYTHONPATH=.:$PYTHONPATH \
+          python -m pytest --maxfail=1 --disable-warnings -m e2e \
+            --log-cli-level=INFO \
+            --log-cli-date-format=%H:%M:%S \
+            '--log-cli-format=%(asctime)s [%(levelname)s] %(message)s'

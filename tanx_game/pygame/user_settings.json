@@ -27,6 +27,6 @@
     "master": 1.0,
     "ui": 0.8
   },
-  "weather": "snow",
+  "weather": "clear",
   "windowed_fullscreen": false
 }

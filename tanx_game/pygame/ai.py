@@ -5,10 +5,13 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from tanx_game.core.game import Game, ShotResult
 from tanx_game.core.tank import Tank
+
+if TYPE_CHECKING:  # pragma: no cover - used only for type hints
+    from tanx_game.pygame.app import PygameTanx
 
 
 @dataclass

@@ -45,6 +45,17 @@ def test_play_vs_computer_menu_option(monkeypatch, tmp_path) -> None:
         assert app.ai_opponent_active
         assert app.is_ai_controlled(1)
         assert "CPU" in app.player_names[1]
+        # Return to menu to exercise difficulty selector without starting a game
+        app._activate_menu("main_menu")
+        app._action_open_settings()
+        assert app.menu.state == "settings_menu"
+        labels_before = [opt.label for opt in app.menu.options if opt.label.startswith("AI Difficulty")]
+        assert labels_before
+        app._change_ai_difficulty(1)
+        labels_after = [opt.label for opt in app.menu.options if opt.label.startswith("AI Difficulty")]
+        assert labels_after and labels_after != labels_before
+        app._action_settings_back()
+        assert app.menu.state == "main_menu"
     finally:
         if app:
             app.running = False

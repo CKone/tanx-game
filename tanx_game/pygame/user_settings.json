@@ -1,4 +1,5 @@
 {
+  "ai_difficulty": "high",
   "cell_size": 36,
   "damage": {
     "direct": 55,

@@ -31,12 +31,20 @@ class ShotPlanner:
         samples: int = 24,
         rng: Optional[random.Random] = None,
         humanize: bool = True,
+        base_angle_variance: float = 8.0,
+        base_power_variance: float = 0.35,
+        precision_turn: Optional[int] = None,
+        precise_search: bool = False,
     ) -> None:
         self.angle_step = max(1, angle_step)
         self.power_step = max(0.01, power_step)
         self.samples = max(10, samples)
         self._rng = rng or random.Random(1337)
         self.humanize = humanize
+        self.base_angle_variance = max(0.5, base_angle_variance)
+        self.base_power_variance = max(0.01, base_power_variance)
+        self.precision_turn = precision_turn
+        self.precise_search = precise_search
         self._memory: Dict[int, Dict[str, float]] = {}
         self._experience: Dict[int, int] = {}
 
@@ -171,6 +179,29 @@ class ShotPlanner:
             values.append(round(tank.max_power, 3))
         return values
 
+    def _precise_snipe(
+        self,
+        game: Game,
+        shooter: Tank,
+        targets: Sequence[Tank],
+    ) -> Optional[ShotPlan]:
+        target = self._select_primary_target(shooter, targets)
+        best: Optional[ShotPlan] = None
+        angle_step = max(1, self.angle_step // 2) if self.angle_step > 1 else 1
+        for angle in range(shooter.min_angle, shooter.max_angle + 1, angle_step):
+            shooter.turret_angle = angle
+            power = shooter.min_power
+            while power <= shooter.max_power + 1e-6:
+                shooter.shot_power = round(power, 3)
+                result = game.step_projectile(shooter, apply_effects=False)
+                score = self._score_result(result, targets)
+                if best is None or score > best.confidence:
+                    best = ShotPlan(angle=angle, power=shooter.shot_power, confidence=score, prediction=result)
+                    if result.hit_tank is target:
+                        return best
+                power += max(0.02, self.power_step * 0.5)
+        return best
+
     def _refine_from_history(
         self,
         shooter: Tank,
@@ -203,16 +234,21 @@ class ShotPlanner:
         targets: Sequence[Tank],
         target: Tank,
     ) -> ShotPlan:
+        experience = self._experience.get(id(shooter), 0)
+        if self.precision_turn and experience >= (self.precision_turn - 1):
+            precise = self._precise_snipe(game, shooter, targets)
+            if precise:
+                return precise
+            return plan
         if not self.humanize:
             return plan
         shooter_id = id(shooter)
-        experience = self._experience.get(shooter_id, 0)
         recent = self._memory.get(shooter_id)
         history_distance = 999.0
         if recent and recent.get("impact_x") is not None and recent.get("impact_y") is not None:
             history_distance = math.hypot(target.x - recent["impact_x"], target.y - recent["impact_y"])
-        angle_variance = max(1.5, 10.0 - min(experience, 6) * 1.5)
-        power_variance = max(0.05, 0.45 - min(experience, 6) * 0.05)
+        angle_variance = max(1.0, self.base_angle_variance - min(experience, 6) * 1.0)
+        power_variance = max(0.03, self.base_power_variance - min(experience, 6) * 0.04)
         if history_distance < 4.0:
             angle_variance *= 0.4
             power_variance *= 0.4
@@ -293,6 +329,10 @@ class ComputerOpponent:
         self.enabled = flag
         if not flag:
             self.reset_turn()
+
+    def configure_planner(self, planner: ShotPlanner) -> None:
+        self.planner = planner
+        self.reset_turn()
 
     def on_new_match(self) -> None:
         self.reset_turn()

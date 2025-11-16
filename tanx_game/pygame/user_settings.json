@@ -20,6 +20,7 @@
       "turret_up": 1073741906
     }
   ],
+  "opponent_mode": "computer",
   "terrain_style": "urban",
   "volume": {
     "ambient": 0.8,

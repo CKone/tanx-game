@@ -91,6 +91,9 @@ class InputHandler:
             app._activate_menu("pause_menu")
             return
 
+        if app.is_ai_controlled(app.current_player):
+            return
+
         tank = current_tank
         bindings = app.player_bindings[app.current_player]
 
@@ -137,6 +140,8 @@ class InputHandler:
         if app.cheat_menu_visible or app.session.is_animating_projectile() or app.winner:
             return
         if app.keybindings.rebinding_target is not None:
+            return
+        if app.is_ai_controlled(app.current_player):
             return
 
         current_tank = app.session.current_tank

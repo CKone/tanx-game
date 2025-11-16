@@ -20,6 +20,7 @@ from tanx_game.core.game import Game, ShotResult
 from tanx_game.core.session import GameSession
 from tanx_game.core.tank import Tank
 from tanx_game.core.world import TerrainSettings
+from tanx_game.pygame.ai import ComputerOpponent
 from tanx_game.pygame.config import load_user_settings, save_user_settings
 from tanx_game.pygame.display import DisplayManager
 from tanx_game.pygame.effects import EffectsSystem
@@ -78,6 +79,9 @@ class PygameTanx:
         stored_cell_size = self._user_settings.get("cell_size")
         if isinstance(stored_cell_size, int) and stored_cell_size >= 4:
             cell_size = stored_cell_size
+        opponent_mode = self._user_settings.get("opponent_mode")
+        if isinstance(opponent_mode, str) and opponent_mode.lower() == "computer":
+            self._ai_opponent_enabled = True
 
         self.display = DisplayManager(
             cell_size=cell_size,
@@ -93,7 +97,11 @@ class PygameTanx:
         self.running = True
 
         self.player_names = [player_one, player_two]
+        self._human_player_two_name = player_two or "Player 2"
+        self._ai_player_name = "CPU Commander"
+        self._ai_opponent_enabled = False
         self._reset_match_progress()
+        self._apply_opponent_mode_to_names()
 
         self.projectile_interval = 0.03
         self._recoil_duration = 0.18
@@ -205,7 +213,15 @@ class PygameTanx:
 
         self._register_menus()
 
-        self._setup_new_match(player_one, player_two, terrain_settings, seed)
+        self._setup_new_match(
+            self.player_names[0],
+            self.player_names[1],
+            terrain_settings,
+            seed,
+        )
+        self.ai_controller = ComputerOpponent(self)
+        self.ai_controller.set_enabled(self._ai_opponent_enabled)
+        self.ai_controller.on_new_match()
         self._refresh_audio_status()
         self._maybe_apply_audio_notice()
 
@@ -309,6 +325,16 @@ class PygameTanx:
     def winner_delay(self) -> float:
         return self.session.winner_delay
 
+    @property
+    def ai_opponent_active(self) -> bool:
+        return self._ai_opponent_enabled
+
+    def is_ai_controlled(self, player_index: int) -> bool:
+        return self._ai_opponent_enabled and player_index == 1
+
+    def is_current_player_ai(self) -> bool:
+        return self.is_ai_controlled(self.current_player)
+
     def _save_user_settings(self) -> None:
         data = {
             "cell_size": int(self.display.cell_size),
@@ -317,6 +343,7 @@ class PygameTanx:
             "terrain_style": self.terrain_style,
             "weather": self.weather,
             "volume": {k: float(v) for k, v in self._volume_settings.items()},
+            "opponent_mode": "computer" if self._ai_opponent_enabled else "human",
         }
         save_user_settings(data)
         self._user_settings = data
@@ -536,10 +563,29 @@ class PygameTanx:
 
         self._debug_world_summary()
         self._regenerate_parallax_layers()
+        if hasattr(self, "ai_controller"):
+            self.ai_controller.on_new_match()
+            self.ai_controller.set_enabled(self._ai_opponent_enabled)
 
     def _clone_current_settings(self) -> TerrainSettings:
         settings = self.logic.world.settings
         return TerrainSettings(**vars(settings))
+
+    def _apply_opponent_mode_to_names(self) -> None:
+        if not self.player_names:
+            self.player_names = ["Player 1", self._human_player_two_name]
+        if len(self.player_names) < 2:
+            self.player_names.append(self._human_player_two_name)
+        if self._ai_opponent_enabled:
+            self.player_names[1] = self._ai_player_name
+        else:
+            self.player_names[1] = self._human_player_two_name
+
+    def _set_ai_opponent(self, enabled: bool) -> None:
+        self._ai_opponent_enabled = enabled
+        self._apply_opponent_mode_to_names()
+        if hasattr(self, "ai_controller"):
+            self.ai_controller.set_enabled(enabled)
 
     def _register_menus(self) -> None:
         self.menu.register(
@@ -551,6 +597,7 @@ class PygameTanx:
                 ),
                 build_options=lambda: [
                     MenuOption("Start Game", self._action_start_game),
+                    MenuOption("Play vs Computer", self._action_start_vs_computer),
                     MenuOption("Settings", self._action_open_settings),
                     MenuOption("Exit Game", self._action_exit_game),
                 ],
@@ -606,6 +653,7 @@ class PygameTanx:
         settings = self._clone_current_settings()
         if reset_scores:
             self._reset_match_progress()
+        self._apply_opponent_mode_to_names()
         self._setup_new_match(
             self.player_names[0],
             self.player_names[1],
@@ -843,7 +891,14 @@ class PygameTanx:
         self.menu.message = None
 
     def _action_start_game(self) -> None:
+        self._set_ai_opponent(False)
         self._restart_match(start_in_menu=False, reset_scores=True)
+        self._save_user_settings()
+
+    def _action_start_vs_computer(self) -> None:
+        self._set_ai_opponent(True)
+        self._restart_match(start_in_menu=False, reset_scores=True)
+        self._save_user_settings()
 
     def _action_exit_game(self) -> None:
         self.running = False
@@ -1148,6 +1203,8 @@ class PygameTanx:
             return
 
         self.input.update(dt)
+        if hasattr(self, "ai_controller"):
+            self.ai_controller.update(dt)
 
         if (
             self.winner

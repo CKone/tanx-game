@@ -23,3 +23,29 @@ def test_pygame_client_initialises(monkeypatch, tmp_path) -> None:
         if app:
             app.running = False
         pygame.quit()
+
+
+@pytest.mark.smoke
+def test_play_vs_computer_menu_option(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("SDL_VIDEODRIVER", "dummy")
+    monkeypatch.setenv("SDL_AUDIODRIVER", "dummy")
+    monkeypatch.setattr(config, "_SETTINGS_PATH", tmp_path / "user_settings.json", raising=False)
+
+    app = None
+    try:
+        app = PygameTanx(start_in_menu=True, debug=False)
+        assert any(
+            option.label.startswith("Play vs Computer") for option in app.menu.options
+        ), "Menu should list the computer opponent option"
+        for option in app.menu.options:
+            if option.label.startswith("Play vs Computer"):
+                option.action()
+                break
+        assert app.state == "playing"
+        assert app.ai_opponent_active
+        assert app.is_ai_controlled(1)
+        assert "CPU" in app.player_names[1]
+    finally:
+        if app:
+            app.running = False
+        pygame.quit()

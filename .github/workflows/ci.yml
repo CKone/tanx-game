@@ -30,6 +30,21 @@ jobs:
           if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt; fi
           python -m pip install pygame==2.6.1
 
+      - name: Install PlantUML CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y plantuml graphviz
+
+      - name: Render PlantUML diagrams
+        run: |
+          python scripts/render_plantuml_diagrams.py --render
+
+      - name: Upload PlantUML diagrams
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-plantuml-svg
+          path: docs/diagrams/*.svg
+
       - name: Run static analysis
         run: |
           PYTHONPATH=.:$PYTHONPATH \

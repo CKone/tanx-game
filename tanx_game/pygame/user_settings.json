@@ -1,5 +1,9 @@
 {
   "cell_size": 36,
+  "damage": {
+    "direct": 55,
+    "splash": 35
+  },
   "keybindings": [
     {
       "fire": 32,

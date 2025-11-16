@@ -76,6 +76,16 @@ class PygameTanx:
         self._ui_height = ui_height
 
         self._user_settings = load_user_settings()
+        self._damage_ranges = {"direct": (10, 100), "splash": (0, 60)}
+        self._damage_step = 5
+        self._damage_settings = {"direct": 25, "splash": 15}
+        stored_damage = self._user_settings.get("damage")
+        if isinstance(stored_damage, dict):
+            for key in list(self._damage_settings.keys()):
+                value = stored_damage.get(key)
+                if isinstance(value, (int, float)):
+                    min_val, max_val = self._damage_ranges.get(key, (0, 100))
+                    self._damage_settings[key] = max(min_val, min(max_val, int(value)))
         stored_cell_size = self._user_settings.get("cell_size")
         if isinstance(stored_cell_size, int) and stored_cell_size >= 4:
             cell_size = stored_cell_size
@@ -176,11 +186,13 @@ class PygameTanx:
         self.settings_resolution_option_index = 0
         self.settings_style_option_index = 1
         self.settings_weather_option_index = 2
-        self.settings_master_volume_option_index = 3
-        self.settings_effects_volume_option_index = 4
-        self.settings_ambient_volume_option_index = 5
-        self.settings_keybind_option_index = 6
-        self.settings_fullscreen_option_index = 7
+        self.settings_direct_damage_option_index = 3
+        self.settings_splash_damage_option_index = 4
+        self.settings_master_volume_option_index = 5
+        self.settings_effects_volume_option_index = 6
+        self.settings_ambient_volume_option_index = 7
+        self.settings_keybind_option_index = 8
+        self.settings_fullscreen_option_index = 9
 
         self.keybindings = KeybindingManager()
         self.player_bindings = self.keybindings.player_bindings
@@ -344,6 +356,7 @@ class PygameTanx:
             "weather": self.weather,
             "volume": {k: float(v) for k, v in self._volume_settings.items()},
             "opponent_mode": "computer" if self._ai_opponent_enabled else "human",
+            "damage": {k: int(v) for k, v in self._damage_settings.items()},
         }
         save_user_settings(data)
         self._user_settings = data
@@ -531,7 +544,14 @@ class PygameTanx:
             if seed is not None:
                 effective_settings.seed = seed
         effective_settings.style = self.terrain_style
-        self.logic = Game(player_one, player_two, effective_settings, effective_settings.seed)
+        self.logic = Game(
+            player_one,
+            player_two,
+            effective_settings,
+            effective_settings.seed,
+            direct_damage=self._damage_settings["direct"],
+            splash_damage=self._damage_settings["splash"],
+        )
         self.player_names = [player_one, player_two]
         self._terrain_settings = self.logic.world.settings
 
@@ -586,6 +606,13 @@ class PygameTanx:
         self._apply_opponent_mode_to_names()
         if hasattr(self, "ai_controller"):
             self.ai_controller.set_enabled(enabled)
+
+    def _apply_damage_settings(self) -> None:
+        if not hasattr(self, "logic"):
+            return
+        direct = self._damage_settings.get("direct", 25)
+        splash = self._damage_settings.get("splash", 15)
+        self.logic.set_damage_profile(direct, splash)
 
     def _register_menus(self) -> None:
         self.menu.register(
@@ -699,6 +726,39 @@ class PygameTanx:
     def _volume_summary(self) -> str:
         parts = [f"{cat.capitalize()} {int(round(self._volume_settings.get(cat, 1.0) * 100))}%" for cat in self._volume_categories]
         return "Audio: " + " | ".join(parts)
+
+    def _damage_option_label(self, key: str) -> str:
+        value = self._damage_settings.get(key, 0)
+        if key == "direct":
+            title = "Direct Hit Damage"
+        else:
+            title = "Splash Damage"
+        return f"{title}: {int(value)}"
+
+    def _adjust_damage(self, key: str, direction: int) -> None:
+        if key not in self._damage_settings:
+            return
+        min_val, max_val = self._damage_ranges.get(key, (0, 100))
+        step = self._damage_step * direction
+        current = int(self._damage_settings[key])
+        updated = max(min_val, min(max_val, current + step))
+        if updated == current:
+            if self.state == "settings_menu":
+                bound = "minimum" if direction < 0 else "maximum"
+                self.menu.set_message(f"{self._damage_option_label(key)} ({bound} reached)")
+            return
+        self._damage_settings[key] = updated
+        self._apply_damage_settings()
+        if self.state == "settings_menu":
+            self._update_settings_menu_options()
+            self.menu.set_message(f"Damage updated: {self._damage_option_label(key)}")
+        self._save_user_settings()
+
+    def _action_cycle_direct_damage_forward(self) -> None:
+        self._adjust_damage("direct", 1)
+
+    def _action_cycle_splash_damage_forward(self) -> None:
+        self._adjust_damage("splash", 1)
 
     @property
     def terrain_style(self) -> str:
@@ -838,15 +898,19 @@ class PygameTanx:
         self.settings_resolution_option_index = 0
         self.settings_style_option_index = 1
         self.settings_weather_option_index = 2
-        self.settings_master_volume_option_index = 3
-        self.settings_effects_volume_option_index = 4
-        self.settings_ambient_volume_option_index = 5
-        self.settings_keybind_option_index = 6
-        self.settings_fullscreen_option_index = 7
+        self.settings_direct_damage_option_index = 3
+        self.settings_splash_damage_option_index = 4
+        self.settings_master_volume_option_index = 5
+        self.settings_effects_volume_option_index = 6
+        self.settings_ambient_volume_option_index = 7
+        self.settings_keybind_option_index = 8
+        self.settings_fullscreen_option_index = 9
         return [
             MenuOption(self._resolution_option_label(), self._action_cycle_resolution_forward),
             MenuOption(self._terrain_style_option_label(), self._action_cycle_terrain_style_forward),
             MenuOption(self._weather_option_label(), self._action_cycle_weather_forward),
+            MenuOption(self._damage_option_label("direct"), self._action_cycle_direct_damage_forward),
+            MenuOption(self._damage_option_label("splash"), self._action_cycle_splash_damage_forward),
             MenuOption(self._volume_option_label("master"), self._action_cycle_master_volume_forward),
             MenuOption(self._volume_option_label("effects"), self._action_cycle_effects_volume_forward),
             MenuOption(self._volume_option_label("ambient"), self._action_cycle_ambient_volume_forward),
@@ -1037,13 +1101,15 @@ class PygameTanx:
         explosion_scale: float = 1.0,
     ) -> None:
         result = ShotResult(hit_tank=None, impact_x=x_world, impact_y=y_world, path=[])
-        original_damage = self.logic.damage
-        scaled_damage = max(1, int(original_damage * damage_scale))
-        self.logic.damage = scaled_damage
+        original_direct = self.logic.damage
+        original_splash = getattr(self.logic, "splash_damage", original_direct)
+        scaled_direct = max(1, int(original_direct * damage_scale))
+        scaled_splash = max(0, int(original_splash * damage_scale))
+        self.logic.set_damage_profile(scaled_direct, scaled_splash)
         try:
             self.logic.apply_shot_effects(result)
         finally:
-            self.logic.damage = original_damage
+            self.logic.set_damage_profile(original_direct, original_splash)
         self.effects.spawn_explosion((x_world, y_world), explosion_scale)
         if damage_scale >= 1.25:
             self.soundscape.play("explosion_large")

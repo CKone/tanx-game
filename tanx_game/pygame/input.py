@@ -237,6 +237,22 @@ class InputHandler:
                 app._change_weather(1)
                 return
 
+        if app.state == "settings_menu" and app.menu.selection == getattr(app, "settings_direct_damage_option_index", -1):
+            if key == pygame.K_LEFT:
+                app._adjust_damage("direct", -1)
+                return
+            if key == pygame.K_RIGHT:
+                app._adjust_damage("direct", 1)
+                return
+
+        if app.state == "settings_menu" and app.menu.selection == getattr(app, "settings_splash_damage_option_index", -1):
+            if key == pygame.K_LEFT:
+                app._adjust_damage("splash", -1)
+                return
+            if key == pygame.K_RIGHT:
+                app._adjust_damage("splash", 1)
+                return
+
         if app.state == "settings_menu":
             selection = app.menu.selection
             if selection == getattr(app, "settings_master_volume_option_index", -1):

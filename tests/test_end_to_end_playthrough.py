@@ -200,6 +200,8 @@ class MenuNavigator:
             "Resolution",
             "Map Style",
             "Weather",
+            "Direct Hit Damage",
+            "Splash Damage",
             "Master Volume",
             "Effects Volume",
             "Ambient Volume",

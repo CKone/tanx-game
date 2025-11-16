@@ -114,11 +114,18 @@ def draw_ui(app) -> None:
 
     instruction_parts = [
         "P1: A/D move, W/S aim, Space fire, Q/E power",
-        "P2: ←/→ move, ↑/↓ aim, Enter fire, [,/.] power",
-        "Superpowers: B bomber, N squad, M scope",
-        "Hold Shift: coarse aim & power",
-        "Esc: pause menu",
     ]
+    if getattr(app, "ai_opponent_active", False):
+        instruction_parts.append("P2: Computer controlled opponent")
+    else:
+        instruction_parts.append("P2: ←/→ move, ↑/↓ aim, Enter fire, [,/.] power")
+    instruction_parts.extend(
+        [
+            "Superpowers: B bomber, N squad, M scope",
+            "Hold Shift: coarse aim & power",
+            "Esc: pause menu",
+        ]
+    )
     if app.cheat_enabled:
         instruction_parts.append("F1: cheat console")
     instructions_text = "   |   ".join(instruction_parts)

@@ -91,6 +91,9 @@ class InputHandler:
             app._activate_menu("pause_menu")
             return
 
+        if app.is_ai_controlled(app.current_player):
+            return
+
         tank = current_tank
         bindings = app.player_bindings[app.current_player]
 
@@ -137,6 +140,8 @@ class InputHandler:
         if app.cheat_menu_visible or app.session.is_animating_projectile() or app.winner:
             return
         if app.keybindings.rebinding_target is not None:
+            return
+        if app.is_ai_controlled(app.current_player):
             return
 
         current_tank = app.session.current_tank
@@ -230,6 +235,30 @@ class InputHandler:
                 return
             if key == pygame.K_RIGHT:
                 app._change_weather(1)
+                return
+
+        if app.state == "settings_menu" and app.menu.selection == getattr(app, "settings_direct_damage_option_index", -1):
+            if key == pygame.K_LEFT:
+                app._adjust_damage("direct", -1)
+                return
+            if key == pygame.K_RIGHT:
+                app._adjust_damage("direct", 1)
+                return
+
+        if app.state == "settings_menu" and app.menu.selection == getattr(app, "settings_splash_damage_option_index", -1):
+            if key == pygame.K_LEFT:
+                app._adjust_damage("splash", -1)
+                return
+            if key == pygame.K_RIGHT:
+                app._adjust_damage("splash", 1)
+                return
+
+        if app.state == "settings_menu" and app.menu.selection == getattr(app, "settings_ai_difficulty_option_index", -1):
+            if key == pygame.K_LEFT:
+                app._change_ai_difficulty(-1)
+                return
+            if key == pygame.K_RIGHT:
+                app._change_ai_difficulty(1)
                 return
 
         if app.state == "settings_menu":

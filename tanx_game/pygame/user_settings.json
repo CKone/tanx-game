@@ -1,5 +1,10 @@
 {
+  "ai_difficulty": "high",
   "cell_size": 36,
+  "damage": {
+    "direct": 55,
+    "splash": 35
+  },
   "keybindings": [
     {
       "fire": 32,
@@ -20,6 +25,7 @@
       "turret_up": 1073741906
     }
   ],
+  "opponent_mode": "computer",
   "terrain_style": "urban",
   "volume": {
     "ambient": 0.8,

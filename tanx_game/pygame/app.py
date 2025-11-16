@@ -20,6 +20,7 @@ from tanx_game.core.game import Game, ShotResult
 from tanx_game.core.session import GameSession
 from tanx_game.core.tank import Tank
 from tanx_game.core.world import TerrainSettings
+from tanx_game.pygame.ai import ComputerOpponent, ShotPlanner
 from tanx_game.pygame.config import load_user_settings, save_user_settings
 from tanx_game.pygame.display import DisplayManager
 from tanx_game.pygame.effects import EffectsSystem
@@ -75,9 +76,69 @@ class PygameTanx:
         self._ui_height = ui_height
 
         self._user_settings = load_user_settings()
+        self._damage_ranges = {"direct": (10, 100), "splash": (0, 60)}
+        self._damage_step = 5
+        self._damage_settings = {"direct": 25, "splash": 15}
+        self._ai_difficulties = [
+            {
+                "key": "low",
+                "label": "Cadet",
+                "planner": {
+                    "angle_step": 3,
+                    "power_step": 0.08,
+                    "samples": 24,
+                    "humanize": True,
+                    "base_angle_variance": 10.0,
+                    "base_power_variance": 0.45,
+                },
+            },
+            {
+                "key": "medium",
+                "label": "Veteran",
+                "planner": {
+                    "angle_step": 3,
+                    "power_step": 0.06,
+                    "samples": 30,
+                    "humanize": True,
+                    "base_angle_variance": 6.0,
+                    "base_power_variance": 0.25,
+                    "precision_turn": 4,
+                },
+            },
+            {
+                "key": "high",
+                "label": "Commander",
+                "planner": {
+                    "angle_step": 2,
+                    "power_step": 0.05,
+                    "samples": 36,
+                    "humanize": True,
+                    "base_angle_variance": 3.0,
+                    "base_power_variance": 0.12,
+                    "precision_turn": 3,
+                    "precise_search": True,
+                },
+            },
+        ]
+        self._ai_difficulty_index = 0
+        stored_damage = self._user_settings.get("damage")
+        if isinstance(stored_damage, dict):
+            for key in list(self._damage_settings.keys()):
+                value = stored_damage.get(key)
+                if isinstance(value, (int, float)):
+                    min_val, max_val = self._damage_ranges.get(key, (0, 100))
+                    self._damage_settings[key] = max(min_val, min(max_val, int(value)))
+        stored_ai_diff = self._user_settings.get("ai_difficulty")
+        if isinstance(stored_ai_diff, str):
+            self._set_ai_difficulty(stored_ai_diff, configure=False)
+        else:
+            self._set_ai_difficulty(self._ai_difficulties[0]["key"], configure=False)
         stored_cell_size = self._user_settings.get("cell_size")
         if isinstance(stored_cell_size, int) and stored_cell_size >= 4:
             cell_size = stored_cell_size
+        opponent_mode = self._user_settings.get("opponent_mode")
+        if isinstance(opponent_mode, str) and opponent_mode.lower() == "computer":
+            self._ai_opponent_enabled = True
 
         self.display = DisplayManager(
             cell_size=cell_size,
@@ -93,7 +154,11 @@ class PygameTanx:
         self.running = True
 
         self.player_names = [player_one, player_two]
+        self._human_player_two_name = player_two or "Player 2"
+        self._ai_player_name = "CPU Commander"
+        self._ai_opponent_enabled = False
         self._reset_match_progress()
+        self._apply_opponent_mode_to_names()
 
         self.projectile_interval = 0.03
         self._recoil_duration = 0.18
@@ -168,11 +233,13 @@ class PygameTanx:
         self.settings_resolution_option_index = 0
         self.settings_style_option_index = 1
         self.settings_weather_option_index = 2
-        self.settings_master_volume_option_index = 3
-        self.settings_effects_volume_option_index = 4
-        self.settings_ambient_volume_option_index = 5
-        self.settings_keybind_option_index = 6
-        self.settings_fullscreen_option_index = 7
+        self.settings_direct_damage_option_index = 3
+        self.settings_splash_damage_option_index = 4
+        self.settings_master_volume_option_index = 5
+        self.settings_effects_volume_option_index = 6
+        self.settings_ambient_volume_option_index = 7
+        self.settings_keybind_option_index = 8
+        self.settings_fullscreen_option_index = 9
 
         self.keybindings = KeybindingManager()
         self.player_bindings = self.keybindings.player_bindings
@@ -205,7 +272,16 @@ class PygameTanx:
 
         self._register_menus()
 
-        self._setup_new_match(player_one, player_two, terrain_settings, seed)
+        self._setup_new_match(
+            self.player_names[0],
+            self.player_names[1],
+            terrain_settings,
+            seed,
+        )
+        planner = self._create_ai_planner()
+        self.ai_controller = ComputerOpponent(self, planner=planner)
+        self.ai_controller.set_enabled(self._ai_opponent_enabled)
+        self.ai_controller.on_new_match()
         self._refresh_audio_status()
         self._maybe_apply_audio_notice()
 
@@ -309,6 +385,16 @@ class PygameTanx:
     def winner_delay(self) -> float:
         return self.session.winner_delay
 
+    @property
+    def ai_opponent_active(self) -> bool:
+        return self._ai_opponent_enabled
+
+    def is_ai_controlled(self, player_index: int) -> bool:
+        return self._ai_opponent_enabled and player_index == 1
+
+    def is_current_player_ai(self) -> bool:
+        return self.is_ai_controlled(self.current_player)
+
     def _save_user_settings(self) -> None:
         data = {
             "cell_size": int(self.display.cell_size),
@@ -317,6 +403,9 @@ class PygameTanx:
             "terrain_style": self.terrain_style,
             "weather": self.weather,
             "volume": {k: float(v) for k, v in self._volume_settings.items()},
+            "opponent_mode": "computer" if self._ai_opponent_enabled else "human",
+            "damage": {k: int(v) for k, v in self._damage_settings.items()},
+            "ai_difficulty": self._current_ai_difficulty().get("key", "low"),
         }
         save_user_settings(data)
         self._user_settings = data
@@ -504,7 +593,14 @@ class PygameTanx:
             if seed is not None:
                 effective_settings.seed = seed
         effective_settings.style = self.terrain_style
-        self.logic = Game(player_one, player_two, effective_settings, effective_settings.seed)
+        self.logic = Game(
+            player_one,
+            player_two,
+            effective_settings,
+            effective_settings.seed,
+            direct_damage=self._damage_settings["direct"],
+            splash_damage=self._damage_settings["splash"],
+        )
         self.player_names = [player_one, player_two]
         self._terrain_settings = self.logic.world.settings
 
@@ -536,10 +632,80 @@ class PygameTanx:
 
         self._debug_world_summary()
         self._regenerate_parallax_layers()
+        if hasattr(self, "ai_controller"):
+            self.ai_controller.on_new_match()
+            self.ai_controller.set_enabled(self._ai_opponent_enabled)
 
     def _clone_current_settings(self) -> TerrainSettings:
         settings = self.logic.world.settings
         return TerrainSettings(**vars(settings))
+
+    def _apply_opponent_mode_to_names(self) -> None:
+        if not self.player_names:
+            self.player_names = ["Player 1", self._human_player_two_name]
+        if len(self.player_names) < 2:
+            self.player_names.append(self._human_player_two_name)
+        if self._ai_opponent_enabled:
+            self.player_names[1] = self._ai_player_name
+        else:
+            self.player_names[1] = self._human_player_two_name
+
+    def _set_ai_opponent(self, enabled: bool) -> None:
+        self._ai_opponent_enabled = enabled
+        self._apply_opponent_mode_to_names()
+        if hasattr(self, "ai_controller"):
+            self.ai_controller.set_enabled(enabled)
+
+    def _current_ai_difficulty(self) -> dict:
+        if not self._ai_difficulties:
+            raise RuntimeError("AI difficulties not configured")
+        return self._ai_difficulties[self._ai_difficulty_index % len(self._ai_difficulties)]
+
+    def _ai_difficulty_label(self) -> str:
+        return self._current_ai_difficulty().get("label", "Cadet")
+
+    def _play_vs_computer_label(self) -> str:
+        return f"Play vs Computer ({self._ai_difficulty_label()})"
+
+    def _set_ai_difficulty(self, key: str, *, configure: bool = True) -> None:
+        for idx, entry in enumerate(self._ai_difficulties):
+            if entry.get("key") == key:
+                self._ai_difficulty_index = idx
+                break
+        else:
+            self._ai_difficulty_index = 0
+        if configure and hasattr(self, "ai_controller"):
+            self.ai_controller.configure_planner(self._create_ai_planner())
+            self.ai_controller.on_new_match()
+            self.ai_controller.set_enabled(self._ai_opponent_enabled)
+
+    def _ai_difficulty_option_label(self) -> str:
+        return f"AI Difficulty: {self._ai_difficulty_label()}"
+
+    def _change_ai_difficulty(self, direction: int) -> None:
+        if not self._ai_difficulties:
+            return
+        new_index = (self._ai_difficulty_index + direction) % len(self._ai_difficulties)
+        key = self._ai_difficulties[new_index]["key"]
+        self._set_ai_difficulty(key)
+        if self.state == "settings_menu":
+            self._update_settings_menu_options()
+            self.menu.set_message(f"AI difficulty set to {self._ai_difficulty_label()}")
+        if self.state == "main_menu":
+            self.menu.update_options()
+        self._save_user_settings()
+
+    def _create_ai_planner(self) -> ShotPlanner:
+        profile = dict(self._current_ai_difficulty().get("planner", {}))
+        profile["rng"] = random.Random()
+        return ShotPlanner(**profile)
+
+    def _apply_damage_settings(self) -> None:
+        if not hasattr(self, "logic"):
+            return
+        direct = self._damage_settings.get("direct", 25)
+        splash = self._damage_settings.get("splash", 15)
+        self.logic.set_damage_profile(direct, splash)
 
     def _register_menus(self) -> None:
         self.menu.register(
@@ -551,6 +717,7 @@ class PygameTanx:
                 ),
                 build_options=lambda: [
                     MenuOption("Start Game", self._action_start_game),
+                    MenuOption(self._play_vs_computer_label(), self._action_start_vs_computer),
                     MenuOption("Settings", self._action_open_settings),
                     MenuOption("Exit Game", self._action_exit_game),
                 ],
@@ -574,6 +741,14 @@ class PygameTanx:
                 title="Settings",
                 build_options=self._build_settings_menu_options,
                 default_message=lambda: self._settings_instructions,
+            ),
+        )
+        self.menu.register(
+            "ai_difficulty_menu",
+            MenuDefinition(
+                title="AI Commander Difficulty",
+                build_options=self._build_ai_difficulty_menu_options,
+                default_message=lambda: "Choose how skilled the AI Commander should be.",
             ),
         )
         self.menu.register(
@@ -606,6 +781,7 @@ class PygameTanx:
         settings = self._clone_current_settings()
         if reset_scores:
             self._reset_match_progress()
+        self._apply_opponent_mode_to_names()
         self._setup_new_match(
             self.player_names[0],
             self.player_names[1],
@@ -651,6 +827,39 @@ class PygameTanx:
     def _volume_summary(self) -> str:
         parts = [f"{cat.capitalize()} {int(round(self._volume_settings.get(cat, 1.0) * 100))}%" for cat in self._volume_categories]
         return "Audio: " + " | ".join(parts)
+
+    def _damage_option_label(self, key: str) -> str:
+        value = self._damage_settings.get(key, 0)
+        if key == "direct":
+            title = "Direct Hit Damage"
+        else:
+            title = "Splash Damage"
+        return f"{title}: {int(value)}"
+
+    def _adjust_damage(self, key: str, direction: int) -> None:
+        if key not in self._damage_settings:
+            return
+        min_val, max_val = self._damage_ranges.get(key, (0, 100))
+        step = self._damage_step * direction
+        current = int(self._damage_settings[key])
+        updated = max(min_val, min(max_val, current + step))
+        if updated == current:
+            if self.state == "settings_menu":
+                bound = "minimum" if direction < 0 else "maximum"
+                self.menu.set_message(f"{self._damage_option_label(key)} ({bound} reached)")
+            return
+        self._damage_settings[key] = updated
+        self._apply_damage_settings()
+        if self.state == "settings_menu":
+            self._update_settings_menu_options()
+            self.menu.set_message(f"Damage updated: {self._damage_option_label(key)}")
+        self._save_user_settings()
+
+    def _action_cycle_direct_damage_forward(self) -> None:
+        self._adjust_damage("direct", 1)
+
+    def _action_cycle_splash_damage_forward(self) -> None:
+        self._adjust_damage("splash", 1)
 
     @property
     def terrain_style(self) -> str:
@@ -790,15 +999,21 @@ class PygameTanx:
         self.settings_resolution_option_index = 0
         self.settings_style_option_index = 1
         self.settings_weather_option_index = 2
-        self.settings_master_volume_option_index = 3
-        self.settings_effects_volume_option_index = 4
-        self.settings_ambient_volume_option_index = 5
-        self.settings_keybind_option_index = 6
-        self.settings_fullscreen_option_index = 7
+        self.settings_direct_damage_option_index = 3
+        self.settings_splash_damage_option_index = 4
+        self.settings_ai_difficulty_option_index = 5
+        self.settings_master_volume_option_index = 6
+        self.settings_effects_volume_option_index = 7
+        self.settings_ambient_volume_option_index = 8
+        self.settings_keybind_option_index = 9
+        self.settings_fullscreen_option_index = 10
         return [
             MenuOption(self._resolution_option_label(), self._action_cycle_resolution_forward),
             MenuOption(self._terrain_style_option_label(), self._action_cycle_terrain_style_forward),
             MenuOption(self._weather_option_label(), self._action_cycle_weather_forward),
+            MenuOption(self._damage_option_label("direct"), self._action_cycle_direct_damage_forward),
+            MenuOption(self._damage_option_label("splash"), self._action_cycle_splash_damage_forward),
+            MenuOption(self._ai_difficulty_option_label(), self._action_cycle_ai_difficulty_forward),
             MenuOption(self._volume_option_label("master"), self._action_cycle_master_volume_forward),
             MenuOption(self._volume_option_label("effects"), self._action_cycle_effects_volume_forward),
             MenuOption(self._volume_option_label("ambient"), self._action_cycle_ambient_volume_forward),
@@ -826,6 +1041,17 @@ class PygameTanx:
         self.menu.update_options()
         self.menu.set_message(self.keybindings.menu_message())
 
+    def _build_ai_difficulty_menu_options(self) -> List[MenuOption]:
+        options: List[MenuOption] = []
+        for entry in self._ai_difficulties:
+            suffix = " (current)" if entry.get("key") == self._current_ai_difficulty().get("key") else ""
+            label = f"{entry.get('label', 'AI')} ({entry.get('key', '').title()}){suffix}"
+            options.append(
+                MenuOption(label, lambda key=entry.get("key", "low"): self._action_select_ai_difficulty(key))
+            )
+        options.append(MenuOption("Back to Main Menu", self._action_ai_difficulty_back))
+        return options
+
 
     def _activate_menu(self, name: str, message: Optional[str] = None) -> None:
         message = self._menu_message_with_notice(name, message)
@@ -843,7 +1069,37 @@ class PygameTanx:
         self.menu.message = None
 
     def _action_start_game(self) -> None:
+        self._set_ai_opponent(False)
         self._restart_match(start_in_menu=False, reset_scores=True)
+        self._save_user_settings()
+
+    def _action_start_vs_computer(self) -> None:
+        self._set_ai_opponent(True)
+        self._restart_match(start_in_menu=False, reset_scores=True)
+        self._save_user_settings()
+
+    def _action_open_ai_difficulty_menu(self) -> None:
+        self._activate_menu(
+            "ai_difficulty_menu",
+            message="Select a difficulty for the AI Commander.",
+        )
+
+    def _action_select_ai_difficulty(self, difficulty_key: str) -> None:
+        current_key = self._current_ai_difficulty().get("key")
+        self._set_ai_difficulty(difficulty_key)
+        self._save_user_settings()
+        message = f"AI difficulty set to {self._ai_difficulty_label()}"
+        if self.menu.state == "ai_difficulty_menu":
+            self.menu.set_message(message)
+            self.menu.update_options()
+        elif self.state == "settings_menu":
+            self.menu.set_message(message)
+            self._update_settings_menu_options()
+        if self.state == "main_menu" and current_key != difficulty_key:
+            self.menu.update_options()
+
+    def _action_ai_difficulty_back(self) -> None:
+        self._activate_menu("main_menu")
 
     def _action_exit_game(self) -> None:
         self.running = False
@@ -982,13 +1238,15 @@ class PygameTanx:
         explosion_scale: float = 1.0,
     ) -> None:
         result = ShotResult(hit_tank=None, impact_x=x_world, impact_y=y_world, path=[])
-        original_damage = self.logic.damage
-        scaled_damage = max(1, int(original_damage * damage_scale))
-        self.logic.damage = scaled_damage
+        original_direct = self.logic.damage
+        original_splash = getattr(self.logic, "splash_damage", original_direct)
+        scaled_direct = max(1, int(original_direct * damage_scale))
+        scaled_splash = max(0, int(original_splash * damage_scale))
+        self.logic.set_damage_profile(scaled_direct, scaled_splash)
         try:
             self.logic.apply_shot_effects(result)
         finally:
-            self.logic.damage = original_damage
+            self.logic.set_damage_profile(original_direct, original_splash)
         self.effects.spawn_explosion((x_world, y_world), explosion_scale)
         if damage_scale >= 1.25:
             self.soundscape.play("explosion_large")
@@ -1009,6 +1267,9 @@ class PygameTanx:
 
     def _action_cycle_weather_forward(self) -> None:
         self._change_weather(1)
+
+    def _action_cycle_ai_difficulty_forward(self) -> None:
+        self._change_ai_difficulty(1)
 
     def _action_resume_game(self) -> None:
         self.state = "playing"
@@ -1148,6 +1409,8 @@ class PygameTanx:
             return
 
         self.input.update(dt)
+        if hasattr(self, "ai_controller"):
+            self.ai_controller.update(dt)
 
         if (
             self.winner

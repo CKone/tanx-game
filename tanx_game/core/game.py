@@ -36,12 +36,14 @@ class Game:
         player_two: str = "Player 2",
         settings: Optional[TerrainSettings] = None,
         seed: Optional[int] = None,
+        direct_damage: int = 25,
+        splash_damage: int = 15,
     ) -> None:
         self.world = World(settings or TerrainSettings(seed=seed))
         self.tanks = self._spawn_tanks(player_one, player_two)
         self.gravity = 0.35
         self.projectile_speed = 6.5
-        self.damage = 25
+        self.set_damage_profile(direct_damage, splash_damage)
         self.explosion_radius = 1.8
         self.crater_size = 4
         self.projectile_time_step = 0.1
@@ -250,6 +252,7 @@ class Game:
         radius = self.explosion_radius
         max_distance = radius
         fatal_tank: Optional[Tank] = None
+        splash_base = max(0, int(self.splash_damage))
         for tank in self.tanks:
             if not tank.alive:
                 continue
@@ -263,12 +266,17 @@ class Game:
                         fatal_tank = tank
                 continue
             falloff = 1 - min(distance / max_distance, 1.0)
-            splash_damage = max(1, int(self.damage * falloff * 0.6))
+            base = splash_base if splash_base > 0 else int(self.damage * 0.6)
+            splash_damage = max(1, int(base * falloff))
             was_alive = tank.alive
             tank.take_damage(splash_damage)
             if was_alive and not tank.alive:
                 fatal_tank = tank
         return fatal_tank
+
+    def set_damage_profile(self, direct: int, splash: int) -> None:
+        self.damage = max(1, int(direct))
+        self.splash_damage = max(0, int(splash))
 
     # Game loop -----------------------------------------------------------------
     def play(self) -> None:

@@ -47,6 +47,7 @@ package "Presentation (pygame)" {
 [SuperpowerManager] --> [Game]
 @enduml
 ```
+![Component overview](diagrams/architecture_md_diagram_01.svg)
 
 ## Core domain
 
@@ -115,6 +116,7 @@ GameSession --> Game
 GameSession --> Tank
 @enduml
 ```
+![Domain model](diagrams/architecture_md_diagram_02.svg)
 
 ## Pygame presentation layer
 

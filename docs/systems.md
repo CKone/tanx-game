@@ -90,6 +90,7 @@ endif
 stop
 @enduml
 ```
+![AI turn state machine](diagrams/systems_md_diagram_01.svg)
 
 Tweaking the AI difficulty only replaces the planner parameters (`angle_step`, `power_step`, variance, precise search) and lets the rest of the flow stay untouched.
 

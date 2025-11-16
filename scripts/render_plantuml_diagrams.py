@@ -7,6 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 from typing import Iterable, List, Tuple
+import subprocess
 
 
 def iter_markdown_files(root: Path) -> Iterable[Path]:
@@ -44,16 +45,19 @@ def extract_diagrams(markdown: Path) -> List[Tuple[int, str]]:
     return diagrams
 
 
-def write_puml(output_dir: Path, markdown: Path, diagrams: List[Tuple[int, str]]) -> List[Path]:
+def write_puml(
+    output_dir: Path, markdown: Path, diagrams: List[Tuple[int, str]]
+) -> List[tuple[Path, str]]:
     rel = markdown.relative_to(output_dir.parent)
     slug = rel.as_posix().replace("/", "_").replace(".", "_")
-    written: List[Path] = []
+    written: List[tuple[Path, str]] = []
     for index, (line_number, body) in enumerate(diagrams, start=1):
         filename = f"{slug}_diagram_{index:02d}.puml"
         target = output_dir / filename
         header = f"' Extracted from {rel}:{line_number}\n"
-        target.write_text(header + body, encoding="utf-8")
-        written.append(target)
+        content = header + body
+        target.write_text(content, encoding="utf-8")
+        written.append((target, content))
     return written
 
 
@@ -83,6 +87,17 @@ def main(argv: List[str] | None = None) -> int:
         default=None,
         help="Destination directory for .puml files (default: DOCS/diagrams).",
     )
+    parser.add_argument(
+        "--render",
+        action="store_true",
+        help="Also render SVG files using the PlantUML CLI.",
+    )
+    parser.add_argument(
+        "--plantuml-jar",
+        type=Path,
+        default=Path("/usr/share/plantuml/plantuml.jar"),
+        help="Path to plantuml.jar when --render is used.",
+    )
     args = parser.parse_args(argv)
 
     docs_dir = args.docs_dir
@@ -91,7 +106,7 @@ def main(argv: List[str] | None = None) -> int:
     clean_directory(output_dir)
 
     markdown_files = list(iter_markdown_files(docs_dir))
-    total_written: List[Path] = []
+    total_written: List[tuple[Path, str]] = []
     for md in markdown_files:
         diagrams = extract_diagrams(md)
         if not diagrams:
@@ -102,6 +117,26 @@ def main(argv: List[str] | None = None) -> int:
         print("No PlantUML diagrams found under", docs_dir, file=sys.stderr)
         return 0
     print(f"Generated {len(total_written)} PlantUML source files in {output_dir}")
+
+    if args.render:
+        jar = args.plantuml_jar
+        if not jar.exists():
+            raise FileNotFoundError(f"PlantUML jar not found at {jar}")
+        for puml_path, content in total_written:
+            svg_path = puml_path.with_suffix(".svg")
+            cmd = [
+                "java",
+                "-Djava.awt.headless=true",
+                "-jar",
+                str(jar),
+                "-tsvg",
+                "-pipe",
+            ]
+            result = subprocess.run(
+                cmd, input=content.encode("utf-8"), capture_output=True, check=True
+            )
+            svg_path.write_bytes(result.stdout)
+        print(f"Rendered {len(total_written)} SVG files in {output_dir}")
     return 0
 
 

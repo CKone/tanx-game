@@ -51,6 +51,7 @@ GameSession -> PygameTanx : winner/wait states, super power gain
 PygameTanx -> Renderer : draw updates next frame
 @enduml
 ```
+![Projectile resolution sequence](diagrams/runtime_flow_md_diagram_01.svg)
 
 Notable details:
 
@@ -87,6 +88,7 @@ PostGame --> Settings : Settings (from overlay)
 PauseMenu --> Settings : Settings option
 @enduml
 ```
+![Game state machine](diagrams/runtime_flow_md_diagram_02.svg)
 
 The cheat console (`F1`) lives outside the state machine and is guarded so it cannot open while projectiles are animating or a winner is already announced.
 

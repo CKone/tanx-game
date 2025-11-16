@@ -37,8 +37,7 @@ jobs:
 
       - name: Render PlantUML diagrams
         run: |
-          python scripts/render_plantuml_diagrams.py
-          plantuml -tsvg docs/diagrams/*.puml
+          python scripts/render_plantuml_diagrams.py --render
 
       - name: Upload PlantUML diagrams
         uses: actions/upload-artifact@v4

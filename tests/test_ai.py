@@ -19,7 +19,7 @@ def _flat_settings() -> TerrainSettings:
 
 def test_shot_planner_finds_reasonable_solution() -> None:
     game = Game("Alpha", "Bravo", _flat_settings(), seed=2025)
-    planner = ShotPlanner(angle_step=4, power_step=0.05)
+    planner = ShotPlanner(angle_step=4, power_step=0.05, humanize=False)
     shooter = game.tanks[1]
     target = game.tanks[0]
     original_angle = shooter.turret_angle
@@ -41,7 +41,7 @@ def test_shot_planner_finds_reasonable_solution() -> None:
 
 def test_shot_planner_returns_none_without_targets() -> None:
     game = Game("Alpha", "Bravo", _flat_settings(), seed=2025)
-    planner = ShotPlanner()
+    planner = ShotPlanner(humanize=False)
     shooter = game.tanks[1]
 
     plan = planner.find_best_shot(game, shooter, [])

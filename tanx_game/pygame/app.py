@@ -20,7 +20,7 @@ from tanx_game.core.game import Game, ShotResult
 from tanx_game.core.session import GameSession
 from tanx_game.core.tank import Tank
 from tanx_game.core.world import TerrainSettings
-from tanx_game.pygame.ai import ComputerOpponent
+from tanx_game.pygame.ai import ComputerOpponent, ShotPlanner
 from tanx_game.pygame.config import load_user_settings, save_user_settings
 from tanx_game.pygame.display import DisplayManager
 from tanx_game.pygame.effects import EffectsSystem
@@ -231,7 +231,7 @@ class PygameTanx:
             terrain_settings,
             seed,
         )
-        self.ai_controller = ComputerOpponent(self)
+        self.ai_controller = ComputerOpponent(self, planner=ShotPlanner(rng=random.Random()))
         self.ai_controller.set_enabled(self._ai_opponent_enabled)
         self.ai_controller.on_new_match()
         self._refresh_audio_status()
